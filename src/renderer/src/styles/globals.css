@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- Theme tokens (light defaults) ---- */
+:root {
+  --color-bg-base: 250 250 250; /* #fafafa */
+  --color-bg-surface: 255 255 255; /* #ffffff */
+  --color-bg-subtle: 244 244 245; /* #f4f4f5 */
+  --color-border: 228 228 231; /* #e4e4e7 */
+  --color-border-strong: 212 212 216;
+  --color-text: 24 24 27; /* #18181b */
+  --color-text-muted: 113 113 122; /* #71717a */
+  --color-accent: 79 70 229; /* indigo-600 */
+  --color-accent-soft: 224 231 255;
+}
+
+/* ---- Dark theme ---- */
+.dark {
+  --color-bg-base: 24 24 27; /* #18181b */
+  --color-bg-surface: 39 39 42; /* #27272a */
+  --color-bg-subtle: 39 39 42;
+  --color-border: 63 63 70; /* #3f3f46 */
+  --color-border-strong: 82 82 91;
+  --color-text: 244 244 245; /* #f4f4f5 */
+  --color-text-muted: 161 161 170; /* #a1a1aa */
+  --color-accent: 129 140 248; /* indigo-400 */
+  --color-accent-soft: 49 46 129;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: rgb(var(--color-bg-base));
+  color: rgb(var(--color-text));
+  font-family: theme('fontFamily.sans');
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Scrollbars — subtle, VS Code-like */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-border-strong));
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-text-muted));
+  background-clip: content-box;
+}
+
+/* Allow text selection where it makes sense */
+input,
+textarea,
+[contenteditable],
+.selectable {
+  user-select: text;
+}

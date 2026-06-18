@@ -1,0 +1,13 @@
+node_modules
+dist
+out
+.dev-data
+.pnpm-store
+.DS_Store
+*.log
+.env
+.env.*
+release
+.vscode/.tmp
+.reasonix/
+*.tsbuildinfo

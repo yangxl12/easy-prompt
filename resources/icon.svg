@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Background gradient: deep indigo to vibrant purple -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+    <!-- Subtle inner glow -->
+    <radialGradient id="glow" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Rounded rectangle background -->
+  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+
+  <!-- Subtle inner glow -->
+  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#glow)"/>
+
+  <!-- Chat bubble — speech balloon shape -->
+  <g transform="translate(200, 180)">
+    <!-- Bubble body: rounded rectangle -->
+    <rect x="0" y="0" width="500" height="360" rx="72" ry="72" fill="white" opacity="0.95"/>
+
+    <!-- Bubble tail (triangle pointing down-left) -->
+    <path d="M 60 360 L 120 360 L 60 440 Z" fill="white" opacity="0.95"/>
+
+    <!-- Three text lines (rounded bars) -->
+    <rect x="56" y="72" width="300" height="44" rx="22" ry="22" fill="#4F46E5" opacity="0.35"/>
+    <rect x="56" y="148" width="388" height="44" rx="22" ry="22" fill="#7C3AED" opacity="0.25"/>
+    <rect x="56" y="224" width="260" height="44" rx="22" ry="22" fill="#6366F1" opacity="0.30"/>
+
+    <!-- Sparkle/star icon at the end of the second line -->
+    <g transform="translate(420, 272)">
+      <!-- 4-point star / sparkle -->
+      <path d="M 0,-64 C 8,-22 22,-8 64,0 C 22,8 8,22 0,64 C -8,22 -22,8 -64,0 C -22,-8 -8,-22 0,-64 Z"
+            fill="#F59E0B" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Outer decorative sparkles -->
+  <g fill="#FBBF24" opacity="0.6">
+    <circle cx="720" cy="280" r="18"/>
+    <circle cx="800" cy="200" r="12"/>
+    <circle cx="740" cy="680" r="14"/>
+    <circle cx="160" cy="720" r="16"/>
+    <circle cx="260" cy="760" r="10"/>
+  </g>
+</svg>

@@ -1,0 +1,35 @@
+appId: com.easyprompt.app
+productName: EasyPrompt
+directories:
+  buildResources: build
+icon: build/icon.png
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{.dev-data,.dev-data/**}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: EasyPrompt
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  include: build/installer.nsh
+  artifactName: ${productName}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+  artifactName: ${productName}-${version}.${ext}
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+publish: null
