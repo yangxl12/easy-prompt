@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
-Generate PNG icons for EasyPrompt from scratch using Pillow.
-Output sizes: 16x16 (tray-small), 32x32 (tray), 256x256 (window), 512x512, 1024x1024 (packaging).
+Generate PNG icons + Windows .ico for EasyPrompt from scratch using Pillow.
+
+Output:
+  - Tray: icon-tray-16.png, icon-tray-32.png
+  - App:  icon-256.png, icon-512.png, icon-1024.png, icon.png (1024)
+  - Win:  icon.ico  (multi-resolution: 16,24,32,48,64,128,256)
 
 Usage:
     python3 scripts/generate-icons.py
@@ -207,6 +211,31 @@ def png_to_ts_literal(png_bytes: bytes) -> str:
     return "Buffer.from(\n" + " +\n".join(lines) + ",\n  'base64'\n)"
 
 
+def generate_ico():
+    """Generate a multi-resolution .ico file for Windows.
+
+    Windows needs an ICO with multiple embedded sizes so the taskbar, alt-tab,
+    and start menu all render correctly at different DPI scales.
+
+    Pillow's ICO saver takes a single master image + a list of sizes;
+    it downscales the master to each requested size automatically.
+    We use the 256×256 icon as the master — it's the highest resolution
+    Windows actually uses for taskbar icons, and it keeps the .ico small.
+    """
+    ico_sizes = [16, 24, 32, 48, 64, 128, 256]
+    master = generate_full_icon(256)
+    if master.mode != "RGBA":
+        master = master.convert("RGBA")
+
+    ico_path = BUILD / "icon.ico"
+    master.save(
+        ico_path,
+        format="ICO",
+        sizes=[(s, s) for s in ico_sizes],
+    )
+    print(f"  ✓ {ico_path}  (multi-res .ico with sizes {ico_sizes})")
+
+
 def main():
     print("Generating EasyPrompt icons...\n")
 
@@ -224,11 +253,14 @@ def main():
         img.save(path, "PNG")
         print(f"  ✓ {path}  ({img.size[0]}x{img.size[1]})")
 
-    # Also save the canonical icon.png (1024x1024) that electron-builder expects
+    # Canonical icon.png (1024x1024) that electron-builder expects for macOS/linux
     img_1024 = generate_full_icon(1024)
     canonical = BUILD / "icon.png"
     img_1024.save(canonical, "PNG")
     print(f"  ✓ {canonical}  (1024x1024, canonical for electron-builder)")
+
+    # Windows: multi-resolution .ico (taskbar, start menu, alt-tab)
+    generate_ico()
 
     # Generate the TypeScript literal for the tray icon embed
     tray_img = generate_tray_icon(32)
@@ -240,8 +272,8 @@ def main():
     print(f"  Tray icon data URI prefix: {png_to_data_uri(tray_bytes)[:60]}...")
 
     print("\nDone! Icons written to build/")
-    print("To use in electron-builder: the icon.png at build/ is auto-detected.")
-    print("For macOS .icns and Windows .ico, electron-builder auto-converts from icon.png.")
+    print("For macOS: electron-builder auto-converts icon.png → .icns.")
+    print("For Windows: a multi-resolution icon.ico is provided explicitly.")
 
 
 if __name__ == "__main__":

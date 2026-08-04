@@ -11,14 +11,21 @@
   },
   "tree": {
     "empty": "工作区为空，请新建一个提示词文档",
+    "noWorkspace": "尚未选择工作目录",
+    "noWorkspaceHint": "点击上方 📂 图标，选择一个文件夹作为工作目录",
     "newFile": "新建 Markdown 文档",
     "newFolder": "新建文件夹",
     "copy": "复制",
     "rename": "重命名",
     "delete": "删除",
     "showInFolder": "在文件管理器中打开",
+    "copySelected": "复制选中文件 ({{count}})",
+    "deleteSelected": "删除选中文件 ({{count}})",
+    "deleteSelectedConfirm": "确定删除这 {{count}} 个文件吗？",
     "newFileName": "未命名.md",
     "newFolderName": "新文件夹",
+    "openFolder": "打开本地文件夹",
+    "preview": "预览",
     "deleteConfirm": "确定删除「{{name}}」吗？",
     "renamePrompt": "输入新名称"
   },
@@ -47,7 +54,9 @@
     "selected": "选中 {{count}}"
   },
   "tabs": {
-    "close": "关闭"
+    "close": "关闭",
+    "closeRight": "关闭右侧标签",
+    "closeOthers": "关闭其他标签"
   },
   "ai": {
     "imageToPrompt": "将 UI 图片转化成提示词",
@@ -63,6 +72,11 @@
     "convertHelp": "把截图/图片喂给视觉模型，生成一段可复现该 UI 的提示词",
     "retry": "重试",
     "cancel": "取消",
+    "stop": "停止",
+    "optimizeWholeFile": "优化整个文件内容",
+    "optimizeSelection": "优化选中的提示词",
+    "selectTextFirst": "必须选中文字才能优化",
+    "stopping": "正在停止…",
     "capturedImage": "已捕获图片，点击「转换为提示词」生成提示词",
     "converting": "正在识别图片…",
     "pasteImageHint": "可直接粘贴/拖入图片，或点击此处选择文件",
@@ -102,6 +116,8 @@
     "showPreviewHint": "在编辑器右侧显示 Markdown 渲染预览",
     "sidebarCollapsed": "折叠侧边栏",
     "sidebarExpand": "展开侧边栏",
+    "showOptimizeWholeFile": "显示「优化整个文件」按钮",
+    "showOptimizeWholeFileHint": "在编辑器顶部工具栏显示「优化整个文件内容」按钮。关闭后仅显示「优化选中的提示词」按钮。",
     "change": "更改",
     "addModel": "新增模型",
     "importPreset": "导入预设",

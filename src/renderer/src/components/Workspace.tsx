@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { FileNode } from '@shared/types'
 import { useConfigStore } from '../store/config'
 import { useWorkspaceStore, tabContent, type Tab } from '../store/workspace'
-import { writeFile } from '../services/fileOps'
+import { writeFile, createFile } from '../services/fileOps'
+import { insertNode } from '../services/treeOps'
+import { useWorkspaceRoot } from '../services/workspaceRoot'
 import { optimizePrompt } from '../services/ai'
 import TabBar from './EditorPane/TabBar'
 import CodeEditor, { type EditorCommands } from './EditorPane/CodeEditor'
@@ -28,24 +31,54 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   const aiReady = useConfigStore((s) => s.aiReady())
   const autoSave = useConfigStore((s) => s.config.app.autoSave)
   const optimizeDefaultAction = useConfigStore((s) => s.config.app.optimizeDefaultAction)
+  const showOptimizeWholeFile = useConfigStore((s) => s.config.app.showOptimizeWholeFile)
   const showPreview = useConfigStore((s) => s.config.app.showPreview)
   const tabs = useWorkspaceStore((s) => s.tabs)
   const activePath = useWorkspaceStore((s) => s.activePath)
-  const edit = useWorkspaceStore((s) => s.edit)
   const openFile = useWorkspaceStore((s) => s.openFile)
   const markClean = useWorkspaceStore((s) => s.markClean)
   const closeTab = useWorkspaceStore((s) => s.closeTab)
+  const edit = useWorkspaceStore((s) => s.edit)
+  const setActive = useWorkspaceStore((s) => s.setActive)
+  const workspaceRoot = useWorkspaceRoot()
 
   const activeTab = tabs.find((tb) => tb.path === activePath) ?? null
   const content = tabContent(activeTab ?? undefined)
   const optimize = useOptimizePrompt()
   const image = useImagePaste()
 
-  // Imperative editor commands handed back by CodeEditor on mount; used by the
-  // right-click menu to drive copy/cut/paste/etc.
-  const commandsRef = useRef<EditorCommands | null>(null)
+  // Imperative editor commands for each tab, keyed by path. Used by the
+  // right-click context menu and to focus the editor on tab switch.
+  const commandsMapRef = useRef<Map<string, EditorCommands>>(new Map())
   // Drag-over state lives here (parent) so the editor can stay a dumb view.
   const [dropActive, setDropActive] = useState(false)
+  // Track whether the active editor has a text selection.
+  const [hasSelection, setHasSelection] = useState(false)
+
+  // Focus the newly-active editor when the active tab changes.
+  // Skip auto-focus when a tree node just entered rename mode — the RenameInput
+  // needs the focus and the editor would steal it (especially on macOS where
+  // setTimeout(0) fires before the rename input's synchronous focus settles).
+  useEffect(() => {
+    if (activePath && !useWorkspaceStore.getState().pendingRenamePath) {
+      // Use a short timeout so the browser has a chance to update display:none
+      // before we try to focus the (now visible) CodeMirror element.
+      const id = setTimeout(() => {
+        // Re-check in case a rename started between scheduling and execution.
+        if (!useWorkspaceStore.getState().pendingRenamePath) {
+          commandsMapRef.current.get(activePath)?.focus()
+        }
+      }, 0)
+      return () => clearTimeout(id)
+    }
+    return
+  }, [activePath])
+
+  // Reset selection state when active tab changes — the new editor's selection
+  // state will be reported on the next user interaction.
+  useEffect(() => {
+    setHasSelection(false)
+  }, [activePath])
 
   const isDraft = activeTab?.path.startsWith(DRAFT_PREFIX) ?? false
 
@@ -55,11 +88,16 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   activeTabRef.current = activeTab
 
   // Auto-resolve optimize when config says overwrite or keep (skip the dialog).
+  // Use a ref for resolve so the effect doesn't re-fire on every render just
+  // because the `optimize` spread object is a new reference each time.
+  const optimizeResolveRef = useRef(optimize.resolve)
+  optimizeResolveRef.current = optimize.resolve
+
   useEffect(() => {
     if (optimize.pending && optimizeDefaultAction !== 'ask') {
-      void optimize.resolve(optimizeDefaultAction)
+      void optimizeResolveRef.current(optimizeDefaultAction)
     }
-  }, [optimize.pending, optimizeDefaultAction, optimize])
+  }, [optimize.pending, optimizeDefaultAction])
 
   const performAutoSave = useCallback(async (): Promise<void> => {
     const tab = activeTabRef.current
@@ -113,17 +151,57 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
     // 'cancel' does nothing
   }, [pendingCloseTab, closeTab])
 
-  const handleSave = async (): Promise<void> => {
-    if (!activeTab) return
-    if (isDraft) {
-      // Draft tabs exist only in memory; guide the user to a real file first.
-      window.alert(t('editor.draftSaveHint'))
-      return
+  /** Save a specific tab (used by per-tab editors via Ctrl+S). */
+  const saveTab = useCallback(
+    async (tab: Tab): Promise<void> => {
+      if (tab.readOnly) return
+      if (tab.path.startsWith(DRAFT_PREFIX)) {
+        window.alert(t('editor.draftSaveHint'))
+        return
+      }
+      const toWrite = tab.dirtyContent ?? tab.savedContent
+      await writeFile(tab.path, toWrite)
+      markClean(tab.path)
+    },
+    [t, markClean]
+  )
+
+  /** Create a new Markdown file and open it. */
+  const handleNewFile = useCallback(async (): Promise<void> => {
+    if (!workspaceRoot) return
+    const path = await createFile(workspaceRoot, t('tree.newFileName'))
+    const name = path.split('/').pop() ?? ''
+    // Newly created files are always empty — skip the readFile IPC.
+    openFile(path, name, '')
+    // Optimistically insert into the tree and enter rename mode so the user
+    // can type a new name right away (matches sidebar + context-menu flows).
+    const state = useWorkspaceStore.getState()
+    if (state.tree) {
+      const newNode: FileNode = {
+        path,
+        name,
+        kind: 'file'
+      }
+      state.setTree(insertNode(state.tree, workspaceRoot, newNode))
     }
-    const toWrite = activeTab.dirtyContent ?? activeTab.savedContent
-    await writeFile(activeTab.path, toWrite)
-    markClean(activeTab.path)
-  }
+    state.setPendingRename(path)
+  }, [workspaceRoot, openFile, t])
+
+  /** Switch to the next tab (with wrap-around). */
+  const goToNextTab = useCallback(() => {
+    if (tabs.length <= 1) return
+    const idx = tabs.findIndex((tb) => tb.path === activePath)
+    const next = idx < tabs.length - 1 ? tabs[idx + 1] : tabs[0]
+    setActive(next.path)
+  }, [tabs, activePath, setActive])
+
+  /** Switch to the previous tab (with wrap-around). */
+  const goToPrevTab = useCallback(() => {
+    if (tabs.length <= 1) return
+    const idx = tabs.findIndex((tb) => tb.path === activePath)
+    const prev = idx > 0 ? tabs[idx - 1] : tabs[tabs.length - 1]
+    setActive(prev.path)
+  }, [tabs, activePath, setActive])
 
   const handleConvertImage = async (): Promise<void> => {
     if (!activeTab || image.busy) return
@@ -169,23 +247,34 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
     streaming: string | null
     error: string | null
   }>({ busy: false, streaming: null, error: null })
+  const selAbortRef = useRef<(() => void) | null>(null)
 
   const optimizeSelection = useCallback(async (): Promise<void> => {
-    const cmds = commandsRef.current
-    if (!cmds || !activeTab) return
+    if (!activePath || !activeTab) return
+    const cmds = commandsMapRef.current.get(activePath)
+    if (!cmds) return
     const selectedText = cmds.getSelectionText()
     if (!selectedText.trim()) return
     setSelectionOptimize({ busy: true, streaming: '', error: null })
     try {
-      const optimized = await optimizePrompt(selectedText, (delta) => {
+      const { result, abort } = optimizePrompt(selectedText, (delta) => {
         setSelectionOptimize((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
       })
+      // Capture abort synchronously so the stop button works immediately.
+      selAbortRef.current = abort
+      const { result: optimized, aborted } = await result
+      if (aborted) {
+        setSelectionOptimize({ busy: false, streaming: null, error: null })
+        return
+      }
       setSelectionOptimize({ busy: false, streaming: null, error: null })
       // Splice the optimized text back into the document, replacing the
       // original selection in place.
       cmds.replaceSelection(optimized)
     } catch (err) {
       setSelectionOptimize({ busy: false, streaming: null, error: t('ai.error', { message: (err as Error).message }) })
+    } finally {
+      selAbortRef.current = null
     }
   }, [activeTab, t])
 
@@ -218,14 +307,15 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, hasSelection: boolean): void => {
-      const cmds = commandsRef.current
+      const cmds = activePath ? commandsMapRef.current.get(activePath) : undefined
       const mod = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'
+      const isReadOnly = activeTab?.readOnly ?? false
       const items: MenuItemDef[] = [
         {
           id: 'cut',
           label: t('editor.cut'),
           shortcut: `${mod}X`,
-          disabled: !hasSelection,
+          disabled: !hasSelection || isReadOnly,
           onClick: () => cmds?.cut()
         },
         {
@@ -239,18 +329,20 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
           id: 'paste',
           label: t('editor.paste'),
           shortcut: `${mod}V`,
+          disabled: isReadOnly,
           onClick: () => cmds?.paste(),
           separatorAfter: true
         },
         {
           id: 'paste-image',
           label: t('editor.pasteImage'),
+          disabled: isReadOnly,
           onClick: () => void pickImage()
         },
         {
           id: 'optimize-selection',
           label: t('editor.optimizeSelection'),
-          disabled: !hasSelection || !aiReady,
+          disabled: !hasSelection || !aiReady || isReadOnly,
           onClick: () => void optimizeSelection(),
           separatorAfter: true
         },
@@ -264,18 +356,20 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
           id: 'undo',
           label: t('editor.undo'),
           shortcut: `${mod}Z`,
+          disabled: isReadOnly,
           onClick: () => cmds?.undo()
         },
         {
           id: 'redo',
           label: t('editor.redo'),
           shortcut: `Shift+${mod}Z`,
+          disabled: isReadOnly,
           onClick: () => cmds?.redo()
         }
       ]
       openMenu(e, items)
     },
-    [aiReady, openMenu, optimizeSelection, pickImage, t]
+    [aiReady, activePath, activeTab?.readOnly, openMenu, optimizeSelection, pickImage, t]
   )
 
   const hasOpenTab = activeTab !== null
@@ -291,19 +385,77 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   }, [content])
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col bg-bg-base">
+    <main
+      className="flex min-w-0 flex-1 flex-col bg-bg-base"
+      onDragOver={(e) => {
+        // Allow file drops so the browser doesn't navigate away (belt + suspenders
+        // with main-process will-navigate prevention).
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault()
+        }
+      }}
+      onDrop={(e) => {
+        // If a child already handled the drop (EmptyState, CodeEditor), skip.
+        if (e.defaultPrevented) return
+        // Catch-all drop prevention: even if no child handles the drop, stop the
+        // browser from navigating to a file:// URL.
+        e.preventDefault()
+        setDropActive(false)
+        // Image ingress: if an image was dropped and we're in active-tab state,
+        // route it to the same handleImageFile used by paste/picker.
+        const files = e.dataTransfer.files
+        if (files && files.length > 0) {
+          for (let i = 0; i < files.length; i++) {
+            if (files[i].type.startsWith('image/')) {
+              handleImageFile(files[i])
+              return
+            }
+          }
+        }
+      }}
+    >
       {/* AI action bar */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        {/* Optimize whole file — only shown when enabled in settings */}
+        {showOptimizeWholeFile && (
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!aiReady || !hasOpenTab || busy}
+            title={t('ai.optimizeHelp')}
+            onClick={() => void optimize.run()}
+          >
+            <SparkleIcon />
+            {optimize.busy ? t('ai.working') : t('ai.optimizeWholeFile')}
+          </Button>
+        )}
+
+        {/* Optimize selection — always visible */}
         <Button
           variant="primary"
           size="sm"
-          disabled={!aiReady || !hasOpenTab || busy}
-          title={t('ai.optimizeHelp')}
-          onClick={() => void optimize.run()}
+          disabled={!aiReady || !hasOpenTab || !hasSelection || busy}
+          title={!hasSelection ? t('ai.selectTextFirst') : t('ai.optimizeHelp')}
+          onClick={() => void optimizeSelection()}
         >
           <SparkleIcon />
-          {busy ? t('ai.working') : t('ai.optimize')}
+          {selectionOptimize.busy ? t('ai.working') : t('ai.optimizeSelection')}
         </Button>
+
+        {/* Stop button — visible during any AI operation */}
+        {busy && (
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => {
+              if (optimize.busy) optimize.abort()
+              if (selectionOptimize.busy) selAbortRef.current?.()
+            }}
+          >
+            {t('ai.stop')}
+          </Button>
+        )}
+
         <Button
           variant="secondary"
           size="sm"
@@ -406,44 +558,62 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
         <>
           <TabBar onRequestClose={requestCloseTab} />
           <div className="relative flex min-h-0 flex-1 flex-col">
-            {showPreview ? (
-              <SplitPane
-                left={
-                  <CodeEditor
-                    key={activeTab.path}
-                    value={content}
-                    onChange={(v) => edit(activeTab.path, v)}
-                    onSave={() => void handleSave()}
-                    onPasteImage={handleImageFile}
-                    onDropImage={handleImageFile}
-                    onContextMenu={handleContextMenu}
-                    dropActive={dropActive}
-                    onDropActiveChange={setDropActive}
-                    dropHint={t('editor.dropImageHint')}
-                    registerCommands={(cmds) => {
-                      commandsRef.current = cmds
-                    }}
-                  />
-                }
-                right={<MarkdownPreview source={content} />}
-              />
-            ) : (
-              <CodeEditor
-                key={activeTab.path}
-                value={content}
-                onChange={(v) => edit(activeTab.path, v)}
-                onSave={() => void handleSave()}
-                onPasteImage={handleImageFile}
-                onDropImage={handleImageFile}
-                onContextMenu={handleContextMenu}
-                dropActive={dropActive}
-                onDropActiveChange={setDropActive}
-                dropHint={t('editor.dropImageHint')}
-                registerCommands={(cmds) => {
-                  commandsRef.current = cmds
-                }}
-              />
-            )}
+            {/* Render an editor for every open tab so undo history survives tab switches.
+                Only the active tab's editor is visible; others are display:none. */}
+            {tabs.map((tab) => {
+              const isActive = tab.path === activePath
+              const tabStr = tabContent(tab)
+
+              const editor = (
+                <CodeEditor
+                  value={tabStr}
+                  onChange={(v) => {
+                    if (!tab.readOnly) edit(tab.path, v)
+                  }}
+                  readOnly={tab.readOnly}
+                  onSave={() => {
+                    void saveTab(tab)
+                  }}
+                  onPasteImage={isActive ? handleImageFile : undefined}
+                  onDropImage={isActive ? handleImageFile : undefined}
+                  onContextMenu={handleContextMenu}
+                  dropActive={isActive ? dropActive : false}
+                  onDropActiveChange={isActive ? setDropActive : () => {}}
+                  dropHint={isActive ? t('editor.dropImageHint') : undefined}
+                  registerCommands={(cmds) => {
+                    commandsMapRef.current.set(tab.path, cmds)
+                  }}
+                  onCloseTab={isActive ? () => requestCloseTab(tab.path) : undefined}
+                  onNewFile={isActive ? handleNewFile : undefined}
+                  onNextTab={isActive ? goToNextTab : undefined}
+                  onPrevTab={isActive ? goToPrevTab : undefined}
+                  onSelectionChange={isActive ? setHasSelection : undefined}
+                />
+              )
+
+              return (
+                <div
+                  key={`${tab.path}${tab.readOnly ? ':ro' : ''}`}
+                  style={{ display: isActive ? undefined : 'none' }}
+                  className="min-h-0 flex-1 relative"
+                >
+                  {tab.readOnly ? (
+                    <div className="absolute inset-0 flex min-h-0">
+                      <MarkdownPreview source={tabStr} />
+                    </div>
+                  ) : showPreview ? (
+                    <div className="absolute inset-0 flex min-h-0">
+                      <SplitPane
+                        left={editor}
+                        right={<MarkdownPreview source={tabStr} />}
+                      />
+                    </div>
+                  ) : (
+                    editor
+                  )}
+                </div>
+              )
+            })}
             {/* Status bar: line + char counts */}
             <div className="flex items-center justify-end gap-3 border-t border-border bg-bg-surface px-3 py-1 text-[11px] text-text-muted">
               <span>{t('editor.lines', { count: stats.lines })}</span>
@@ -517,12 +687,12 @@ function EmptyState({ onDropImage }: { onDropImage?: (file: File) => void }): JS
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(false)
         const files = e.dataTransfer.files
         if (!files || files.length === 0) return
         for (let i = 0; i < files.length; i++) {
           if (files[i].type.startsWith('image/')) {
-            e.preventDefault()
-            setDragOver(false)
             onDropImage?.(files[i])
             return
           }

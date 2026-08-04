@@ -54,6 +54,8 @@ export interface AppSettings {
   showPreview: boolean
   /** Whether the file sidebar is collapsed. */
   sidebarCollapsed: boolean
+  /** Whether to show the "Optimize entire file" button in the toolbar. */
+  showOptimizeWholeFile: boolean
 }
 
 /** The whole persisted config blob. */
@@ -149,12 +151,14 @@ export const IPC = {
   FS_RENAME: 'fs:rename',
   FS_DELETE: 'fs:delete',
   FS_COPY: 'fs:copy',
+  FS_DELETE_MULTI: 'fs:delete-multi',
   FS_SHOW_IN_FOLDER: 'fs:show-in-folder',
   FS_WATCH: 'fs:watch',
   // ai
   AI_CALL: 'ai:call',
   AI_TEST: 'ai:test',
   AI_STREAM_CHUNK: 'ai:stream-chunk',
+  AI_CANCEL: 'ai:cancel',
   // workspace
   CONFIG_SELECT_WORKSPACE: 'config:select-workspace',
   CONFIG_CHANGE_WORKSPACE: 'config:change-workspace'
@@ -169,5 +173,5 @@ export const IPC = {
  * instead and never needs to compute this.
  */
 export function defaultShortcut(_platform: NodeJS.Platform): string {
-  return 'Shift+Space'
+  return 'Shift+P'
 }

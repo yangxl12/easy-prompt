@@ -12,39 +12,9 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "build:win": "electron-vite build && electron-builder --win --x64",
-    "build:mac": "electron-vite build && electron-builder --mac --arm64",
+    "build:win": "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ electron-vite build && electron-builder --win --x64",
+    "build:mac": "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ electron-vite build && electron-builder --mac --arm64",
     "preview": "electron-vite preview --noSandbox"
-  },
-  "build": {
-    "appId": "com.easyprompt.app",
-    "productName": "EasyPrompt",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "out/**/*",
-      "package.json",
-      "build/icon-256.png",
-      "build/icon-tray-32.png",
-      "!**/.pnpm-store",
-      "!**/.dev-data",
-      "!**/node_modules/.cache"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.png"
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "build/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "include": "build/installer.nsh",
-      "warningsAsErrors": false
-    }
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

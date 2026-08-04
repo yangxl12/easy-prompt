@@ -151,3 +151,24 @@ export const ArrowDownIcon = (p: IconProps): JSX.Element => (
     <path d="m6 9 6 6 6-6" />
   </svg>
 )
+
+export const ChevronDownIcon = (p: IconProps): JSX.Element => (
+  <svg {...base} {...p}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+)
+
+export const MarkdownIcon = (p: IconProps): JSX.Element => (
+  <svg {...base} {...p}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M8 13v4M12 13v4M8 15l4-2 4 2" />
+  </svg>
+)
+
+export const EyeIcon = (p: IconProps): JSX.Element => (
+  <svg {...base} {...p}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+)

@@ -72,7 +72,8 @@ async function chatStream(
   model: AIModelConfig,
   modelIdToUse: string,
   messages: ChatMessage[],
-  onDelta: (delta: string) => void
+  onDelta: (delta: string) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const url = joinUrl(model.baseURL, '/chat/completions')
   const res = await fetch(url, {
@@ -82,7 +83,8 @@ async function chatStream(
       Authorization: `Bearer ${model.apiKey}`,
       Accept: 'text/event-stream'
     },
-    body: JSON.stringify({ model: modelIdToUse, messages, stream: true })
+    body: JSON.stringify({ model: modelIdToUse, messages, stream: true }),
+    signal
   })
 
   if (!res.ok) {
@@ -156,7 +158,8 @@ async function chatStream(
 /** Build messages for a request and dispatch to text vs vision model. */
 export async function callAI(
   req: AICallRequest,
-  onDelta?: (delta: string) => void
+  onDelta?: (delta: string) => void,
+  signal?: AbortSignal
 ): Promise<AICallResult> {
   const model = await findModel(req.modelId)
 
@@ -220,7 +223,7 @@ export async function callAI(
   ]
   const content =
     req.stream && onDelta
-      ? await chatStream(model, model.textModel, messages, onDelta)
+      ? await chatStream(model, model.textModel, messages, onDelta, signal)
       : await chat(model, model.textModel, messages)
   return { content }
 }

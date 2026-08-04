@@ -55,6 +55,19 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
+  // Global keyboard shortcut: Ctrl+B / Cmd+B toggles sidebar.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+        e.preventDefault()
+        const { config, patchConfig } = useConfigStore.getState()
+        void patchConfig({ app: { sidebarCollapsed: !config.app.sidebarCollapsed } })
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   // Apply theme class on document root whenever mode changes.
   useEffect(() => {
     const resolved = resolveTheme(config.app.theme)

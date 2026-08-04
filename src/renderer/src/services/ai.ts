@@ -34,7 +34,8 @@ function detectLanguageName(text: string, fallback: Language): string {
 }
 
 /**
- * Optimize (polish) a prompt. Returns the improved text.
+ * Optimize (polish) a prompt. Returns a promise for the improved text and a
+ * synchronous abort function that cancels the in-flight call immediately.
  *
  * Two things keep the model from silently translating the prompt into English:
  *  1. We detect the original prompt's language and name it explicitly.
@@ -44,11 +45,14 @@ function detectLanguageName(text: string, fallback: Language): string {
  * rather than blocking until the whole response is ready. When `onDelta` is
  * supplied, it is invoked for each incremental token chunk; the final
  * fully-assembled text is still returned by the promise.
+ *
+ * The abort function is returned synchronously — callers can cancel
+ * immediately without waiting for the promise to settle.
  */
-export async function optimizePrompt(
+export function optimizePrompt(
   text: string,
   onDelta?: (delta: string) => void
-): Promise<string> {
+): { result: Promise<{ result: string; aborted: boolean }>; abort: () => void } {
   const appLang = useConfigStore.getState().config.app.language
   const outLang = detectLanguageName(text, appLang)
   const systemPrompt = [
@@ -65,25 +69,60 @@ export async function optimizePrompt(
   // before invoke resolves — is matched to this call.
   let unsub: (() => void) | null = null
   const streamId = onDelta ? randomLocalId() : undefined
+  let aborted = false
+  let errorFromStream: string | null = null
+
   if (onDelta && streamId) {
     unsub = window.api.onAIStreamChunk((chunk) => {
-      if (chunk.id === streamId && chunk.delta) onDelta(chunk.delta)
+      if (chunk.id !== streamId) return
+      if (chunk.error === 'cancelled') {
+        aborted = true
+        return
+      }
+      if (chunk.error) {
+        errorFromStream = chunk.error
+        return
+      }
+      if (chunk.delta) onDelta(chunk.delta)
     })
   }
 
-  try {
-    const res: AICallResult = await window.api.callAI({
-      modelId: currentModelId(),
-      task: 'text',
-      systemPrompt,
-      userText: text,
-      stream: Boolean(onDelta),
-      streamId
-    })
-    return res.content.trim()
-  } finally {
-    if (unsub) unsub()
+  const abort = (): void => {
+    if (streamId) {
+      void window.api.cancelAI(streamId)
+    }
+    aborted = true
   }
+
+  const result = (async (): Promise<{ result: string; aborted: boolean }> => {
+    try {
+      const res: AICallResult = await window.api.callAI({
+        modelId: currentModelId(),
+        task: 'text',
+        systemPrompt,
+        userText: text,
+        stream: Boolean(onDelta),
+        streamId
+      })
+      if (aborted) {
+        // Partial result on abort — return what we have so far.
+        return { result: res.content?.trim() ?? '', aborted: true }
+      }
+      if (errorFromStream) {
+        throw new Error(errorFromStream)
+      }
+      return { result: res.content.trim(), aborted: false }
+    } catch (err) {
+      if (aborted) {
+        return { result: '', aborted: true }
+      }
+      throw err
+    } finally {
+      if (unsub) unsub()
+    }
+  })()
+
+  return { result, abort }
 }
 
 /** Describe a UI image and turn it into a structured prompt. */

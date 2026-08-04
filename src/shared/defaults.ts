@@ -22,7 +22,8 @@ export function createDefaultConfigRenderer(): AppConfig {
       autoSave: true,
       optimizeDefaultAction: 'overwrite',
       showPreview: false,
-      sidebarCollapsed: false
+      sidebarCollapsed: false,
+      showOptimizeWholeFile: false
     },
     ai: {
       models: [],

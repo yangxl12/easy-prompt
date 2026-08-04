@@ -2,11 +2,11 @@ import { app, BrowserWindow, Menu } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { optimizer, is } from '@electron-toolkit/utils'
-import { createMainWindow, getMainWindow, revealMainWindow } from './window'
+import { createMainWindow, getMainWindow, revealMainWindow, markForceQuitting, isForceQuitting } from './window'
 import { createTray, destroyTray } from './tray'
 import { registerShortcut, unregisterAll } from './shortcut'
 import { registerIpc } from './ipc'
-import { getConfigInternal, patchConfig } from './config/store'
+import { getConfigInternal } from './config/store'
 import { defaultShortcut } from '@shared/types'
 
 /** Replace literal space chars with "Space" for Electron accelerator compatibility. */
@@ -91,11 +91,11 @@ function bootstrap(): void {
     // and fall back to platform-appropriate defaults if registration fails.
     const shortcut = normalizeAccel(cfg.app.shortcut || defaultShortcut(process.platform))
     if (!registerShortcut(shortcut)) {
-      // On Windows, Shift+Space often conflicts with the IME full/half-width toggle.
+      // Shift+P is unlikely to conflict with system shortcuts on any platform.
       // Try fallback accelerators in order of preference.
       const fallbacks =
         process.platform === 'win32'
-          ? ['Alt+Space', 'Ctrl+Shift+Space', defaultShortcut(process.platform)]
+          ? ['Alt+Space', 'Ctrl+Shift+P', defaultShortcut(process.platform)]
           : [defaultShortcut(process.platform)]
       let registered = false
       for (const fb of fallbacks) {
@@ -124,37 +124,36 @@ function bootstrap(): void {
   app.on('window-all-closed', () => {
     if (is.dev) {
       app.quit()
+      return
     }
+    // Non-macOS: always quit when the last window closes.
     if (process.platform !== 'darwin') {
+      app.quit()
+      return
+    }
+    // macOS production: quit only when the user explicitly chose to quit
+    // (dock Quit, Cmd+Q, tray Quit). Otherwise stay alive with the tray.
+    if (isForceQuitting()) {
       app.quit()
     }
   })
 
   app.on('before-quit', () => {
+    markForceQuitting()
     unregisterAll()
     destroyTray()
   })
 }
 
-/** Create the configured workspace dir if missing. */
+/** Create the configured workspace dir if missing. Skips if unset (fresh install). */
 async function ensureWorkspace(): Promise<void> {
   const config = await getConfigInternal()
   const ws = config.app.workspace
-  if (ws) {
-    try {
-      await fs.mkdir(ws, { recursive: true })
-    } catch (err) {
-      console.error('[EasyPrompt] Failed to create workspace:', err)
-    }
-    return
-  }
-  // Empty workspace — fix it to a sane default and persist.
-  const fallback = path.join(app.getPath('documents'), 'EasyPrompt')
-  await patchConfig({ app: { workspace: fallback } })
+  if (!ws) return // User hasn't picked a workspace yet — don't create anything.
   try {
-    await fs.mkdir(fallback, { recursive: true })
+    await fs.mkdir(ws, { recursive: true })
   } catch (err) {
-    console.error('[EasyPrompt] Failed to create fallback workspace:', err)
+    console.error('[EasyPrompt] Failed to create workspace:', err)
   }
 }
 

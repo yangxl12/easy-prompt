@@ -11,14 +11,21 @@
   },
   "tree": {
     "empty": "Workspace is empty. Create a new prompt document.",
+    "noWorkspace": "No workspace selected",
+    "noWorkspaceHint": "Click the 📂 icon above to select a folder",
     "newFile": "New Markdown Document",
     "newFolder": "New Folder",
     "copy": "Copy",
     "rename": "Rename",
     "delete": "Delete",
     "showInFolder": "Reveal in File Manager",
+    "copySelected": "Copy selected ({{count}})",
+    "deleteSelected": "Delete selected ({{count}})",
+    "deleteSelectedConfirm": "Delete these {{count}} files?",
     "newFileName": "untitled.md",
     "newFolderName": "new-folder",
+    "openFolder": "Open Folder",
+    "preview": "Preview",
     "deleteConfirm": "Delete \"{{name}}\"?",
     "renamePrompt": "Enter a new name"
   },
@@ -47,7 +54,9 @@
     "selected": "{{count}} selected"
   },
   "tabs": {
-    "close": "Close"
+    "close": "Close",
+    "closeRight": "Close Tabs to the Right",
+    "closeOthers": "Close Other Tabs"
   },
   "ai": {
     "imageToPrompt": "Convert UI image to prompt",
@@ -63,6 +72,11 @@
     "convertHelp": "Feed the screenshot/image to a vision model to generate a prompt that reproduces the UI",
     "retry": "Retry",
     "cancel": "Cancel",
+    "stop": "Stop",
+    "optimizeWholeFile": "Optimize entire file",
+    "optimizeSelection": "Optimize selected prompt",
+    "selectTextFirst": "Select text to optimize",
+    "stopping": "Stopping…",
     "capturedImage": "Image captured — click \"Convert to prompt\" to generate a prompt",
     "converting": "Analyzing image…",
     "pasteImageHint": "Paste/drop an image, or click here to pick a file",
@@ -102,6 +116,8 @@
     "showPreviewHint": "Show rendered Markdown preview alongside the editor",
     "sidebarCollapsed": "Collapse sidebar",
     "sidebarExpand": "Expand sidebar",
+    "showOptimizeWholeFile": "Show \"Optimize entire file\" button",
+    "showOptimizeWholeFileHint": "Show the \"Optimize entire file\" button in the editor toolbar. When off, only the \"Optimize selection\" button is shown.",
     "change": "Change",
     "addModel": "Add model",
     "importPreset": "Import preset",

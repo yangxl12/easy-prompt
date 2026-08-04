@@ -2,6 +2,7 @@ appId: com.easyprompt.app
 productName: EasyPrompt
 directories:
   buildResources: build
+  output: release
 icon: build/icon.png
 files:
   - '!**/.vscode/*'
@@ -11,10 +12,27 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{.dev-data,.dev-data/**}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.codegraph,.codegraph/**}'
+  - '!{.reasonix,.reasonix/**}'
+  - '!**/.DS_Store'
 asarUnpack:
   - resources/**
+  # Unpack icon files so BrowserWindow/Tray can load them at runtime
+  # from process.resourcesPath (outside the ASAR archive).
+  - build/icon.ico
+  - build/icon-256.png
+  - build/icon-tray-32.png
+extraResources:
+  # Ship icon files alongside the ASAR for runtime BrowserWindow/Tray loading.
+  - from: build/icon.ico
+    to: build/icon.ico
+  - from: build/icon-256.png
+    to: build/icon-256.png
+  - from: build/icon-tray-32.png
+    to: build/icon-tray-32.png
 win:
   executableName: EasyPrompt
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:

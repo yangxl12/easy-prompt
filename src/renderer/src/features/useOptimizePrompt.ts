@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '../store/workspace'
 import { optimizePrompt } from '../services/ai'
@@ -28,6 +28,7 @@ export interface OptimizeState {
 export function useOptimizePrompt(): OptimizeState & {
   run: () => Promise<void>
   resolve: (choice: 'overwrite' | 'keep' | 'cancel') => Promise<void>
+  abort: () => void
 } {
   const { t } = useTranslation()
   const root = useWorkspaceRoot()
@@ -37,6 +38,10 @@ export function useOptimizePrompt(): OptimizeState & {
     pending: null,
     streaming: null
   })
+  /** Guards against concurrent resolve calls triggered by re-render storms. */
+  const resolvingRef = useRef(false)
+  /** Current abort function, set during an active run. */
+  const abortRef = useRef<(() => void) | null>(null)
 
   const run = async (): Promise<void> => {
     // Read fresh from the store rather than a captured hook value, so a stale
@@ -48,22 +53,47 @@ export function useOptimizePrompt(): OptimizeState & {
     if (!original.trim()) return
     setState({ busy: true, error: null, pending: null, streaming: '' })
     try {
-      const optimized = await optimizePrompt(original, (delta) => {
+      const { result, abort } = optimizePrompt(original, (delta) => {
         // Functional update so concurrent chunks compose without clobbering.
         setState((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
       })
+      // Capture abort synchronously so the stop button works immediately,
+      // without waiting for the AI call's promise to settle.
+      abortRef.current = abort
+      const { result: optimized, aborted } = await result
+      if (aborted) {
+        setState({ busy: false, error: null, pending: null, streaming: null })
+        return
+      }
       setState({ busy: false, error: null, pending: { original, optimized, tabPath: tab.path }, streaming: null })
     } catch (err) {
       setState({ busy: false, error: t('ai.error', { message: (err as Error).message }), pending: null, streaming: null })
+    } finally {
+      abortRef.current = null
     }
   }
 
+  const abort = (): void => {
+    abortRef.current?.()
+  }
+
   const resolve = async (choice: 'overwrite' | 'keep' | 'cancel'): Promise<void> => {
-    const pending = state.pending
-    if (!pending || choice === 'cancel') {
+    // Allow cancel to always go through, even if a resolve is in flight.
+    if (choice === 'cancel') {
+      resolvingRef.current = false
       setState({ busy: false, error: null, pending: null, streaming: null })
       return
     }
+
+    // Prevent concurrent resolve calls — the Workspace effect can re-fire
+    // before the first resolve clears `pending`, leading to double writes.
+    if (resolvingRef.current) return
+    const pending = state.pending
+    if (!pending) {
+      setState({ busy: false, error: null, pending: null, streaming: null })
+      return
+    }
+    resolvingRef.current = true
     const { edit, markClean, openFile } = useWorkspaceStore.getState()
     try {
       if (choice === 'overwrite') {
@@ -86,11 +116,13 @@ export function useOptimizePrompt(): OptimizeState & {
         openFile(newPath, newPath.split('/').pop() ?? '', content)
       }
     } catch (err) {
+      resolvingRef.current = false
       setState({ busy: false, error: t('ai.error', { message: (err as Error).message }), pending: null, streaming: null })
       return
     }
+    resolvingRef.current = false
     setState({ busy: false, error: null, pending: null, streaming: null })
   }
 
-  return { ...state, run, resolve }
+  return { ...state, run, resolve, abort }
 }

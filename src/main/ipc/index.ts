@@ -1,5 +1,4 @@
 import { ipcMain, shell, dialog, BrowserWindow } from 'electron'
-import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { IPC, type AppConfig, type AppConfigPatch, type AICallRequest } from '@shared/types'
 import {
@@ -75,33 +74,22 @@ function registerConfigIpc(): void {
     return result.canceled ? null : result.filePaths[0] ?? null
   })
 
-  // Change workspace path and migrate all files from old to new location.
+  // Change workspace path — simply updates the config to point at the chosen folder.
   ipcMain.handle(
     IPC.CONFIG_CHANGE_WORKSPACE,
     async (_e, newPath: string): Promise<{ success: boolean; error?: string }> => {
       try {
         const config = await getConfigInternal()
-        const oldPath = config.app.workspace
 
         // No-op if the path didn't actually change.
-        if (oldPath === newPath) return { success: true }
+        if (config.app.workspace === newPath) return { success: true }
 
-        // Create the new workspace directory.
-        await fs.mkdir(newPath, { recursive: true })
-
-        // Copy all contents from old to new workspace (only if oldPath exists).
-        if (oldPath) {
-          try {
-            await fs.cp(oldPath, newPath, { recursive: true, force: false })
-          } catch (err) {
-            // If the old workspace doesn't exist or is empty, that's fine.
-            const code = (err as NodeJS.ErrnoException).code
-            if (code !== 'ENOENT') throw err
-          }
-        }
-
-        // Persist the new path.
+        // Persist the new path — no file migration, just point at the folder.
         await patchConfig({ app: { workspace: newPath } })
+
+        // Broadcast so the renderer's config store (workspace root, etc.) stays in sync.
+        void broadcastConfig()
+
         return { success: true }
       } catch (err) {
         return { success: false, error: (err as Error).message }
@@ -150,6 +138,13 @@ function registerFsIpc(): void {
     return true
   })
 
+  ipcMain.handle(IPC.FS_DELETE_MULTI, async (_e, filePaths: string[]) => {
+    for (const p of filePaths) {
+      await fsService.remove(p)
+    }
+    return true
+  })
+
   ipcMain.handle(IPC.FS_COPY, async (_e, src: string) => {
     const root = await workspace()
     return fsService.copy(root, src)
@@ -186,6 +181,9 @@ function registerFsIpc(): void {
 }
 
 /* ----------------------------- ai ----------------------------- */
+/** Track in-flight streaming AI calls so they can be cancelled. */
+const aiControllers = new Map<string, AbortController>()
+
 function registerAiIpc(): void {
   ipcMain.handle(IPC.AI_CALL, async (event, req: AICallRequest) => {
     if (req.stream) {
@@ -198,25 +196,40 @@ function registerAiIpc(): void {
           event.sender.send(IPC.AI_STREAM_CHUNK, { id, delta, done: false })
         }
       }
+      // Create an AbortController so the renderer can cancel mid-stream.
+      const ctrl = new AbortController()
+      aiControllers.set(id, ctrl)
       try {
-        const result = await callAI(req, send)
+        const result = await callAI(req, send, ctrl.signal)
         if (!event.sender.isDestroyed()) {
           event.sender.send(IPC.AI_STREAM_CHUNK, { id, delta: '', done: true })
         }
         return { ...result, streamId: id }
       } catch (err) {
+        const isAbort = (err as Error).name === 'AbortError'
         if (!event.sender.isDestroyed()) {
           event.sender.send(IPC.AI_STREAM_CHUNK, {
             id,
             delta: '',
             done: true,
-            error: (err as Error).message
+            error: isAbort ? 'cancelled' : (err as Error).message
           })
         }
         throw err
+      } finally {
+        aiControllers.delete(id)
       }
     }
     return callAI(req)
+  })
+
+  // Cancel an in-flight streaming AI call.
+  ipcMain.handle(IPC.AI_CANCEL, async (_e, streamId: string) => {
+    const ctrl = aiControllers.get(streamId)
+    if (ctrl) {
+      ctrl.abort()
+      aiControllers.delete(streamId)
+    }
   })
   ipcMain.handle(IPC.AI_TEST, async (_e, modelId: string) => {
     await testModel(modelId)

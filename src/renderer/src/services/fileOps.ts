@@ -29,6 +29,10 @@ export async function deleteNode(path: string): Promise<void> {
   await window.api.remove(path)
 }
 
+export async function deleteNodes(paths: string[]): Promise<void> {
+  await window.api.removeMulti(paths)
+}
+
 export async function copyNode(path: string): Promise<string> {
   return window.api.copy(path)
 }

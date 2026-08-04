@@ -50,6 +50,8 @@ const api = {
     ipcRenderer.invoke(IPC.FS_RENAME, oldPath, newName),
   remove: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.FS_DELETE, filePath),
+  removeMulti: (filePaths: string[]): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.FS_DELETE_MULTI, filePaths),
   copy: (src: string): Promise<string> => ipcRenderer.invoke(IPC.FS_COPY, src),
   showInFolder: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.FS_SHOW_IN_FOLDER, filePath),
@@ -90,6 +92,9 @@ const api = {
   /* ----- ai ----- */
   callAI: (req: AICallRequest): Promise<AICallResult> =>
     ipcRenderer.invoke(IPC.AI_CALL, req),
+  /** Cancel an in-flight streaming AI call. */
+  cancelAI: (streamId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.AI_CANCEL, streamId),
   /**
    * Subscribe to streaming delta events. The callback receives every chunk
    * main emits; filter by the `streamId` returned from `callAI`. Returns an

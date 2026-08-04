@@ -4,22 +4,44 @@ import { is } from '@electron-toolkit/utils'
 
 let mainWindow: BrowserWindow | null = null
 
+/** Set to true when the app is genuinely quitting (dock Quit, Cmd+Q, tray quit). */
+let forceQuitting = false
+
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
+/** Mark that the app is being force-quit so the close-to-tray handler lets go. */
+export function markForceQuitting(): void {
+  forceQuitting = true
+}
+
+/** Check whether the app is in the middle of a force-quit. */
+export function isForceQuitting(): boolean {
+  return forceQuitting
+}
+
 /** Resolve the app icon path, with a fallback for dev where `build/` may not exist. */
 function resolveIconPath(): string | undefined {
-  // In production (packaged asar), icons are inside the asar at build/.
+  // On Windows, prefer .ico (multi-resolution) for proper taskbar rendering.
+  // On macOS/Linux a 256×256 PNG is fine.
+  // In production (packaged), icon files are asarUnpack-ed so they live at
+  //   <resourcesPath>/build/<name>  (alongside the app.asar).
   // In dev, they're relative to the project root.
-  // We also check process.resourcesPath for electron-builder extraResources.
-  const candidates = [
-    join(__dirname, '../../build/icon-256.png'),
-    join(__dirname, '../../build/icon.png'),
-    join(__dirname, '../build/icon-256.png'),
-    join(process.resourcesPath || '', 'build/icon-256.png'),
-    join(process.resourcesPath || '', 'icon-256.png'),
-  ]
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          join(process.resourcesPath || '', 'build/icon.ico'),
+          join(__dirname, '../../build/icon.ico'),
+          join(__dirname, '../build/icon.ico'),
+        ]
+      : [
+          join(process.resourcesPath || '', 'build/icon-256.png'),
+          join(__dirname, '../../build/icon-256.png'),
+          join(process.resourcesPath || '', 'build/icon.png'),
+          join(__dirname, '../../build/icon.png'),
+        ]
+
   for (const p of candidates) {
     try {
       const img = nativeImage.createFromPath(p)
@@ -59,6 +81,9 @@ export function createMainWindow(): BrowserWindow {
   // In dev mode, actually close so the process can be restarted cleanly.
   mainWindow.on('close', (e) => {
     if (is.dev) return // let the window close normally
+    // When the app is force-quitting (dock Quit, Cmd+Q, tray quit), let the
+    // window close so the process can exit cleanly.
+    if (forceQuitting) return
     // If window is already hidden, this is a force-close (installer / shutdown).
     // Allow the window to actually close so the process can exit cleanly.
     if (!mainWindow?.isVisible()) return
@@ -70,6 +95,12 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // Prevent any in-app navigation (e.g. folder drops, accidental file:// loads).
+  // This is a single-page app — all "navigation" happens via React state.
+  mainWindow.webContents.on('will-navigate', (e) => {
+    e.preventDefault()
   })
 
   // DIAGNOSTIC: forward renderer console + load failures to main stdout so

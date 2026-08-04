@@ -66,39 +66,6 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps): JSX.El
 function GeneralTab(): JSX.Element {
   const { t } = useTranslation()
   const { config, setTheme, setLanguage, patchConfig } = useConfigStore()
-  const [migrating, setMigrating] = useState(false)
-  const [migrateMsg, setMigrateMsg] = useState<string | null>(null)
-  const [migrateError, setMigrateError] = useState(false)
-
-  const handleChangeWorkspace = async (): Promise<void> => {
-    const chosen = await window.api.selectWorkspace()
-    if (!chosen || chosen === config.app.workspace) return
-
-    const ok = window.confirm(t('settings.migrateConfirm'))
-    if (!ok) return
-
-    setMigrating(true)
-    setMigrateMsg(t('settings.migrating'))
-    setMigrateError(false)
-
-    try {
-      const result = await window.api.changeWorkspace(chosen)
-      if (result.success) {
-        setMigrateMsg(t('settings.migrateDone'))
-        // Refresh config so the displayed path updates.
-        const next = await window.api.getConfig()
-        useConfigStore.getState().setConfig(next)
-      } else {
-        setMigrateMsg(t('settings.migrateFailed', { message: result.error || '' }))
-        setMigrateError(true)
-      }
-    } catch (err) {
-      setMigrateMsg(t('settings.migrateFailed', { message: (err as Error).message }))
-      setMigrateError(true)
-    } finally {
-      setMigrating(false)
-    }
-  }
 
   return (
     <div className="space-y-6 text-sm">
@@ -129,33 +96,6 @@ function GeneralTab(): JSX.Element {
             </option>
           ))}
         </select>
-      </Field>
-
-      <Field label={t('settings.workspace')} hint={t('settings.workspaceHint')}>
-        <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 break-all rounded-md bg-bg-subtle px-3 py-2 text-xs text-text-muted">
-            {config.app.workspace}
-          </code>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={handleChangeWorkspace}
-            disabled={migrating}
-          >
-            {t('settings.changeWorkspace')}
-          </Button>
-        </div>
-        {migrateMsg && (
-          <div
-            className={`mt-2 rounded-md px-3 py-2 text-xs ${
-              migrateError
-                ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
-                : 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-            }`}
-          >
-            {migrateMsg}
-          </div>
-        )}
       </Field>
 
       <Field label={t('settings.shortcut')}>
@@ -199,6 +139,20 @@ function GeneralTab(): JSX.Element {
             type="checkbox"
             checked={config.app.showPreview}
             onChange={(e) => void patchConfig({ app: { showPreview: e.target.checked } })}
+            className="peer sr-only"
+          />
+          <div className="h-5 w-9 rounded-full bg-border transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent/30">
+            <div className="m-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+          </div>
+        </label>
+      </Field>
+
+      <Field label={t('settings.showOptimizeWholeFile')} hint={t('settings.showOptimizeWholeFileHint')}>
+        <label className="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={config.app.showOptimizeWholeFile}
+            onChange={(e) => void patchConfig({ app: { showOptimizeWholeFile: e.target.checked } })}
             className="peer sr-only"
           />
           <div className="h-5 w-9 rounded-full bg-border transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent/30">
@@ -381,10 +335,10 @@ function ShortcutRecorder({
       )}
 
       {/* Reset to default */}
-      {value !== 'Shift+Space' && (
+      {value !== 'Shift+P' && (
         <button
           onClick={() => {
-            onChange('Shift+Space')
+            onChange('Shift+P')
             setJustSaved(true)
             setTimeout(() => setJustSaved(false), 1000)
           }}

@@ -55,7 +55,7 @@ export default function SplitPane({
 
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1">
-      <div style={{ width: `${leftPct}%` }} className="min-w-0 overflow-hidden">
+      <div style={{ width: `${leftPct}%` }} className="min-w-0 h-full relative overflow-hidden">
         {left}
       </div>
       <div
@@ -71,7 +71,7 @@ export default function SplitPane({
         <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
         <div className="absolute inset-y-0 left-0 w-px bg-accent opacity-0 group-hover:opacity-100" />
       </div>
-      <div style={{ width: `${100 - leftPct}%` }} className="min-w-0 overflow-hidden">
+      <div style={{ width: `${100 - leftPct}%` }} className="min-w-0 h-full relative overflow-hidden">
         {right}
       </div>
     </div>

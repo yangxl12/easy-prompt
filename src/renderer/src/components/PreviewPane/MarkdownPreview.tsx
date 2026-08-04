@@ -13,7 +13,7 @@ export default function MarkdownPreview({ source }: MarkdownPreviewProps): JSX.E
   const html = useMemo(() => renderMarkdown(source), [source])
 
   return (
-    <div className="preview-pane h-full overflow-auto px-8 py-6 selectable">
+    <div className="preview-pane absolute inset-0 overflow-auto px-8 py-6 selectable">
       <style>{PREVIEW_CSS}</style>
       <style>{HIGHLIGHT_CSS}</style>
       <div dangerouslySetInnerHTML={{ __html: html }} />
@@ -33,8 +33,10 @@ const PREVIEW_CSS = `
 .preview-pane p { margin: 0.7em 0; }
 .preview-pane a { color: rgb(var(--color-accent)); text-decoration: none; }
 .preview-pane a:hover { text-decoration: underline; }
-.preview-pane ul, .preview-pane ol { margin: 0.6em 0; padding-left: 1.6em; }
+.preview-pane ul, .preview-pane ol { margin: 0.6em 0; padding-left: 1.6em; list-style: revert; }
 .preview-pane li { margin: 0.25em 0; }
+.preview-pane ul ul, .preview-pane ol ul { list-style-type: circle; }
+.preview-pane ul ul ul, .preview-pane ol ul ul { list-style-type: square; }
 .preview-pane blockquote {
   margin: 0.8em 0; padding: 0.2em 1em; border-left: 3px solid rgb(var(--color-accent));
   color: rgb(var(--color-text-muted)); background: rgb(var(--color-bg-subtle) / 0.4);

@@ -13,6 +13,10 @@ interface CodeEditorProps {
   /** Save handler bound to Cmd/Ctrl+S. */
   onSave: () => void
   /**
+   * When true, the editor is read-only — no edits are allowed.
+   */
+  readOnly?: boolean
+  /**
    * Called when the user pastes an image inside the editor. The image is NOT
    * inserted into the document — returning it here lets the caller (the image
    * → prompt feature) intercept it. Wired via CodeMirror's own DOM-event
@@ -42,6 +46,16 @@ interface CodeEditorProps {
    * up the right-click context menu items.
    */
   registerCommands?: (cmds: EditorCommands) => void
+  /** Called when the user presses Ctrl+W / Cmd+W — close the active tab. */
+  onCloseTab?: () => void
+  /** Called when the user presses Ctrl+N / Cmd+N — create a new file. */
+  onNewFile?: () => void
+  /** Called when the user presses Ctrl+PageDown or Ctrl+Tab — next tab. */
+  onNextTab?: () => void
+  /** Called when the user presses Ctrl+PageUp or Ctrl+Shift+Tab — previous tab. */
+  onPrevTab?: () => void
+  /** Called when the text selection changes (hasSelection flag). */
+  onSelectionChange?: (hasSelection: boolean) => void
 }
 
 /** Imperative editor actions exposed to the parent for the context menu. */
@@ -57,42 +71,65 @@ export interface EditorCommands {
   getSelectionText: () => string
   /** Replaces the current selection with `text` (inserts at caret if none). */
   replaceSelection: (text: string) => void
+  /** Focus the editor (called when its tab becomes active). */
+  focus: () => void
 }
 
 /**
- * CodeMirror 6 wrapper. Recreates the view when the active file path changes
- * (signalled by parent swapping the component via `key`), so we treat this as
- * a mount-per-file component.
+ * CodeMirror 6 wrapper. Edits are reported via `onChange` and saved via
+ * `onSave` (Cmd/Ctrl+S). The `value` prop is treated as the source of truth —
+ * external changes (AI overwrites, file sync) are synced into the editor.
+ *
+ * Each tab keeps its own editor instance alive (parent controls visibility via
+ * the container), which preserves per-tab undo history across tab switches.
  */
 export default function CodeEditor({
   value,
   onChange,
   onSave,
+  readOnly,
   onPasteImage,
   onDropImage,
   onContextMenu,
   dropActive,
   onDropActiveChange,
   dropHint,
-  registerCommands
+  registerCommands,
+  onCloseTab,
+  onNewFile,
+  onNextTab,
+  onPrevTab,
+  onSelectionChange
 }: CodeEditorProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   // Keep latest handlers in refs so the editor isn't rebuilt on every keystroke.
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
+  const readOnlyRef = useRef(readOnly)
   const onPasteImageRef = useRef(onPasteImage)
   const onDropImageRef = useRef(onDropImage)
   const onContextMenuRef = useRef(onContextMenu)
   const onDropActiveChangeRef = useRef(onDropActiveChange)
   const registerCommandsRef = useRef(registerCommands)
+  const onCloseTabRef = useRef(onCloseTab)
+  const onNewFileRef = useRef(onNewFile)
+  const onNextTabRef = useRef(onNextTab)
+  const onPrevTabRef = useRef(onPrevTab)
+  const onSelectionChangeRef = useRef(onSelectionChange)
   onChangeRef.current = onChange
   onSaveRef.current = onSave
+  readOnlyRef.current = readOnly
   onPasteImageRef.current = onPasteImage
   onDropImageRef.current = onDropImage
   onContextMenuRef.current = onContextMenu
   onDropActiveChangeRef.current = onDropActiveChange
   registerCommandsRef.current = registerCommands
+  onCloseTabRef.current = onCloseTab
+  onNewFileRef.current = onNewFile
+  onNextTabRef.current = onNextTab
+  onPrevTabRef.current = onPrevTab
+  onSelectionChangeRef.current = onSelectionChange
   // Track the value currently reflected in the editor so we only dispatch a
   // programmatic update when the prop genuinely diverges (e.g. AI overwrite,
   // external file change) — never on the user's own typing, which already
@@ -102,12 +139,60 @@ export default function CodeEditor({
   useEffect(() => {
     if (!hostRef.current) return
 
-    const saveKeymap = keymap.of([
+    const workspaceKeymap = keymap.of([
       {
         key: 'Mod-s',
         preventDefault: true,
         run: () => {
           onSaveRef.current()
+          return true
+        }
+      },
+      {
+        key: 'Mod-w',
+        preventDefault: true,
+        run: () => {
+          onCloseTabRef.current?.()
+          return true
+        }
+      },
+      {
+        key: 'Mod-n',
+        preventDefault: true,
+        run: () => {
+          onNewFileRef.current?.()
+          return true
+        }
+      },
+      {
+        key: 'Ctrl-PageDown',
+        preventDefault: true,
+        run: () => {
+          onNextTabRef.current?.()
+          return true
+        }
+      },
+      {
+        key: 'Ctrl-Tab',
+        preventDefault: true,
+        run: () => {
+          onNextTabRef.current?.()
+          return true
+        }
+      },
+      {
+        key: 'Ctrl-PageUp',
+        preventDefault: true,
+        run: () => {
+          onPrevTabRef.current?.()
+          return true
+        }
+      },
+      {
+        key: 'Ctrl-Shift-Tab',
+        preventDefault: true,
+        run: () => {
+          onPrevTabRef.current?.()
           return true
         }
       }
@@ -118,6 +203,10 @@ export default function CodeEditor({
         const next = update.state.doc.toString()
         valueRef.current = next
         onChangeRef.current(next)
+      }
+      if (update.selectionSet) {
+        const hasSel = !update.state.selection.main.empty
+        onSelectionChangeRef.current?.(hasSel)
       }
     })
 
@@ -226,6 +315,9 @@ export default function CodeEditor({
       }
     })
 
+    // When readOnly, prevent editing in the editor.
+    const readOnlyExt: Extension[] = readOnly ? [EditorView.editable.of(false)] : []
+
     const extensions: Extension[] = [
       lineNumbers(),
       history(),
@@ -234,14 +326,15 @@ export default function CodeEditor({
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search({ top: true }),
-      saveKeymap,
+      workspaceKeymap,
       keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
       updateListener,
       pasteImageHandler,
       dropHandler,
       contextMenuHandler,
       theme,
-      EditorView.lineWrapping
+      EditorView.lineWrapping,
+      ...readOnlyExt
     ]
 
     const state = EditorState.create({
@@ -320,6 +413,9 @@ export default function CodeEditor({
           changes: { from: sel.from, to: sel.to, insert: text },
           selection: { anchor: sel.from + text.length }
         })
+      },
+      focus: () => {
+        viewRef.current?.focus()
       }
     })
 
@@ -348,8 +444,8 @@ export default function CodeEditor({
   }, [value])
 
   return (
-    <div className="relative h-full overflow-auto">
-      <div ref={hostRef} className="h-full" />
+    <div className="relative h-full overflow-hidden">
+      <div ref={hostRef} className="absolute inset-0" />
       {dropActive && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-accent-soft/20 ring-2 ring-inset ring-accent">
           {dropHint && (

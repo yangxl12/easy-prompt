@@ -13,6 +13,8 @@ export interface Tab {
   savedContent: string
   /** Unsaved edits, or null when in sync with disk. */
   dirtyContent: string | null
+  /** When true, the tab is read-only (preview mode) and cannot be edited. */
+  readOnly?: boolean
 }
 
 interface WorkspaceState {
@@ -21,7 +23,7 @@ interface WorkspaceState {
   activePath: string | null
 
   setTree: (tree: FileNode) => void
-  openFile: (path: string, name: string, content: string) => void
+  openFile: (path: string, name: string, content: string, readOnly?: boolean) => void
   closeTab: (path: string) => void
   setActive: (path: string) => void
   /** Mark a tab's on-disk content as updated (e.g. after save or external change). */
@@ -34,10 +36,22 @@ interface WorkspaceState {
   renameTab: (oldPath: string, newPath: string, newName: string) => void
   /** Remove tabs whose paths start with the given prefix (deleted files). */
   dropTabsUnder: (prefix: string) => void
+  /** Reorder tabs by moving the tab at fromIndex to toIndex. */
+  moveTab: (fromIndex: number, toIndex: number) => void
+  /** Close all tabs except the one with the given path. */
+  closeOtherTabs: (path: string) => void
+  /** Close all tabs to the right of the one with the given path. */
+  closeTabsToRight: (path: string) => void
   /** Path of a newly created node that should enter rename mode on next render. */
   pendingRenamePath: string | null
   setPendingRename: (path: string) => void
   clearPendingRename: () => void
+  /** Multi-select in the file tree. */
+  selectedPaths: string[]
+  lastClickedPath: string | null
+  setSelectedPaths: (paths: string[]) => void
+  toggleSelectedPath: (path: string) => void
+  setLastClickedPath: (path: string | null) => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
@@ -47,22 +61,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   setTree: (tree) => set({ tree }),
 
-  openFile: (path, name, content) =>
+  openFile: (path: string, name: string, content: string, readOnly?: boolean) =>
     set((s) => {
       const existing = s.tabs.find((t) => t.path === path)
       if (existing) {
         // Refresh saved content; keep dirty edits if any.
+        // When opening without readOnly flag, reset to editable.
         return {
           tabs: s.tabs.map((t) =>
             t.path === path
-              ? { ...t, name, savedContent: content, dirtyContent: t.dirtyContent }
+              ? { ...t, name, savedContent: content, dirtyContent: t.dirtyContent, readOnly: readOnly ?? false }
               : t
           ),
           activePath: path
         }
       }
       return {
-        tabs: [...s.tabs, { path, name, savedContent: content, dirtyContent: null }],
+        tabs: [...s.tabs, { path, name, savedContent: content, dirtyContent: null, readOnly: readOnly ?? false }],
         activePath: path
       }
     }),
@@ -119,11 +134,61 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       }
     }),
 
+  moveTab: (fromIndex, toIndex) =>
+    set((s) => {
+      if (fromIndex === toIndex) return s
+      const tabs = [...s.tabs]
+      const [moved] = tabs.splice(fromIndex, 1)
+      tabs.splice(toIndex, 0, moved)
+      return { tabs }
+    }),
+
+  closeOtherTabs: (path) =>
+    set((s) => {
+      // Keep only the tab with the matching path.
+      const tabs = s.tabs.filter((t) => t.path === path)
+      // If the active tab is being closed, activate the kept tab.
+      const activeStillOpen = tabs.some((t) => t.path === s.activePath)
+      return {
+        tabs,
+        activePath: activeStillOpen ? s.activePath : path
+      }
+    }),
+
+  closeTabsToRight: (path) =>
+    set((s) => {
+      const idx = s.tabs.findIndex((t) => t.path === path)
+      if (idx === -1) return s
+      // Keep tabs up to and including the target.
+      const tabs = s.tabs.slice(0, idx + 1)
+      // If the active tab was to the right, switch to the target.
+      const activeStillOpen = tabs.some((t) => t.path === s.activePath)
+      return {
+        tabs,
+        activePath: activeStillOpen ? s.activePath : path
+      }
+    }),
+
   pendingRenamePath: null,
 
   setPendingRename: (path) => set({ pendingRenamePath: path }),
 
-  clearPendingRename: () => set({ pendingRenamePath: null })
+  clearPendingRename: () => set({ pendingRenamePath: null }),
+
+  selectedPaths: [],
+  lastClickedPath: null,
+
+  setSelectedPaths: (paths) => set({ selectedPaths: paths }),
+
+  toggleSelectedPath: (path) =>
+    set((s) => {
+      const set = new Set(s.selectedPaths)
+      if (set.has(path)) set.delete(path)
+      else set.add(path)
+      return { selectedPaths: Array.from(set), lastClickedPath: path }
+    }),
+
+  setLastClickedPath: (path) => set({ lastClickedPath: path })
 }))
 
 /** Helper: get the effective content for a tab (dirty or saved). */
