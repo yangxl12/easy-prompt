@@ -4,7 +4,6 @@ import type { FileNode } from '@shared/types'
 import { useContextMenu, type MenuItemDef } from '../ui/ContextMenu'
 import { useWorkspaceStore } from '../../store/workspace'
 import {
-  createFile,
   createFolder,
   renameNode,
   deleteNode,
@@ -55,25 +54,11 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
   const inMultiSelect = isSelected && selectedPaths.length > 1
   const multiPaths = inMultiSelect ? selectedPaths : [node.path]
 
-  const handleNewFile = async (): Promise<void> => {
+  const handleNewFile = (): void => {
     onCreatedInFolder?.()
     const dir = node.kind === 'folder' ? node.path : parentDir
-    const path = await createFile(dir, t('tree.newFileName'))
-    const name = path.split('/').pop() ?? ''
-    // Optimistic insert: add the new node to the in-memory tree immediately
-    // instead of doing a full readTree() IPC round-trip.
-    const state = useWorkspaceStore.getState()
-    if (state.tree) {
-      const newNode: FileNode = {
-        path,
-        name,
-        kind: 'file'
-      }
-      state.setTree(insertNode(state.tree, dir, newNode))
-    }
-    // Newly created files are always empty — skip the readFile IPC.
-    openFile(path, name, '')
-    setPendingRename(path)
+    // Don't create the file yet — show an empty input; it is created on commit.
+    useWorkspaceStore.getState().setPendingNewFile(dir)
   }
 
   const handleNewFolder = async (): Promise<void> => {

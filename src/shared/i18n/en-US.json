@@ -14,6 +14,7 @@
     "noWorkspace": "No workspace selected",
     "noWorkspaceHint": "Click the 📂 icon above to select a folder",
     "newFile": "New Markdown Document",
+    "newFilePlaceholder": "Enter file name…",
     "newFolder": "New Folder",
     "copy": "Copy",
     "rename": "Rename",

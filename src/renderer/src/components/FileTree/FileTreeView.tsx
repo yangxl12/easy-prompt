@@ -10,7 +10,9 @@ import {
   MarkdownIcon
 } from '../ui/icons'
 import FileTreeNodeMenu from './FileTreeNodeMenu'
+import NewFileInput from './NewFileInput'
 import { readFileSync } from '../../services/fileOps'
+import { useWorkspaceRoot } from '../../services/workspaceRoot'
 
 interface FileTreeViewProps {
   node: FileNode
@@ -104,8 +106,14 @@ function FolderRows({
   const lastClickedPath = useWorkspaceStore((s) => s.lastClickedPath)
   const setSelectedPaths = useWorkspaceStore((s) => s.setSelectedPaths)
   const setLastClickedPath = useWorkspaceStore((s) => s.setLastClickedPath)
+  const pendingNewFileDir = useWorkspaceStore((s) => s.pendingNewFileDir)
+  const workspaceRoot = useWorkspaceRoot()
   const isSelected = selectedPaths.includes(node.path)
   const children = node.children ?? []
+  // The Sidebar renders the new-file input for the workspace root itself;
+  // folders render their own input here. Rendering both would mount two
+  // inputs that fight over focus (each blur cancels the other).
+  const isRoot = node.path === workspaceRoot
 
   const handleToggle = useCallback(
     (e: React.MouseEvent): void => {
@@ -155,11 +163,12 @@ function FolderRows({
         </button>
       </FileTreeNodeMenu>
 
-      {open && children.length > 0 && (
+      {open && (children.length > 0 || pendingNewFileDir === node.path) && (
         <div className="ml-[7px] border-l border-black/10 dark:border-white/10 pl-2">
           {children.map((child) => (
             <FileTreeView key={child.path} node={child} flatPaths={flatPaths} />
           ))}
+          {pendingNewFileDir === node.path && !isRoot && <NewFileInput dir={node.path} />}
         </div>
       )}
     </div>

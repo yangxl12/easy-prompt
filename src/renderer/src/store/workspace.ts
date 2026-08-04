@@ -46,6 +46,10 @@ interface WorkspaceState {
   pendingRenamePath: string | null
   setPendingRename: (path: string) => void
   clearPendingRename: () => void
+  /** Directory where a "new markdown" input is shown; the file is only created on commit. */
+  pendingNewFileDir: string | null
+  setPendingNewFile: (dir: string) => void
+  clearPendingNewFile: () => void
   /** Multi-select in the file tree. */
   selectedPaths: string[]
   lastClickedPath: string | null
@@ -174,6 +178,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   setPendingRename: (path) => set({ pendingRenamePath: path }),
 
   clearPendingRename: () => set({ pendingRenamePath: null }),
+
+  pendingNewFileDir: null,
+
+  setPendingNewFile: (dir) => set({ pendingNewFileDir: dir }),
+
+  clearPendingNewFile: () => set({ pendingNewFileDir: null }),
 
   selectedPaths: [],
   lastClickedPath: null,

@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next'
 import type { FileNode } from '@shared/types'
 import { useConfigStore } from '../store/config'
 import { useWorkspaceStore } from '../store/workspace'
-import { watchTree, createFile, createFolder } from '../services/fileOps'
+import { watchTree, createFolder } from '../services/fileOps'
 import { insertNode } from '../services/treeOps'
 import FileTreeView, { flattenTree } from './FileTree/FileTreeView'
+import NewFileInput from './FileTree/NewFileInput'
 import { PlusIcon, ChevronLeftIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from './ui/icons'
 import { useContextMenu } from './ui/ContextMenu'
 import { useWorkspaceRoot } from '../services/workspaceRoot'
@@ -21,9 +22,10 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
   const aiReady = useConfigStore((s) => s.aiReady())
   const tree = useWorkspaceStore((s) => s.tree)
   const setTree = useWorkspaceStore((s) => s.setTree)
-  const openFile = useWorkspaceStore((s) => s.openFile)
   const root = useWorkspaceRoot()
   const setPendingRename = useWorkspaceStore((s) => s.setPendingRename)
+  const pendingNewFileDir = useWorkspaceStore((s) => s.pendingNewFileDir)
+  const setPendingNewFile = useWorkspaceStore((s) => s.setPendingNewFile)
   const selectedPaths = useWorkspaceStore((s) => s.selectedPaths)
   const lastClickedPath = useWorkspaceStore((s) => s.lastClickedPath)
   const collapsed = config.app.sidebarCollapsed
@@ -38,22 +40,10 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
     return unsub
   }, [setTree])
 
-  const handleNewFile = async (): Promise<void> => {
+  const handleNewFile = useCallback((): void => {
     if (!root) return
-    const path = await createFile(root, t('tree.newFileName'))
-    const name = path.split('/').pop() ?? ''
-    const state = useWorkspaceStore.getState()
-    if (state.tree) {
-      const newNode: FileNode = {
-        path,
-        name,
-        kind: 'file'
-      }
-      state.setTree(insertNode(state.tree, root, newNode))
-    }
-    openFile(path, name, '')
-    setPendingRename(path)
-  }
+    setPendingNewFile(root)
+  }, [root, setPendingNewFile])
 
   const handleNewFolder = async (): Promise<void> => {
     if (!root) return
@@ -216,15 +206,20 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
               </div>
             </button>
           </div>
-        ) : tree && tree.children && tree.children.length > 0 ? (
-          <FileTreeView node={tree} flatPaths={flatPaths} />
         ) : (
-          <button
-            onClick={() => void handleNewFile()}
-            className="px-2 py-4 text-left text-xs text-text-muted hover:text-text"
-          >
-            {t('tree.empty')}
-          </button>
+          <>
+            {pendingNewFileDir === root && <NewFileInput dir={root} />}
+            {tree && tree.children && tree.children.length > 0 ? (
+              <FileTreeView node={tree} flatPaths={flatPaths} />
+            ) : pendingNewFileDir !== root ? (
+              <button
+                onClick={() => void handleNewFile()}
+                className="px-2 py-4 text-left text-xs text-text-muted hover:text-text"
+              >
+                {t('tree.empty')}
+              </button>
+            ) : null}
+          </>
         )}
       </div>
 

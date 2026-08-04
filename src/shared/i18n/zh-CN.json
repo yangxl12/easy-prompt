@@ -14,6 +14,7 @@
     "noWorkspace": "尚未选择工作目录",
     "noWorkspaceHint": "点击上方 📂 图标，选择一个文件夹作为工作目录",
     "newFile": "新建 Markdown 文档",
+    "newFilePlaceholder": "输入文件名…",
     "newFolder": "新建文件夹",
     "copy": "复制",
     "rename": "重命名",

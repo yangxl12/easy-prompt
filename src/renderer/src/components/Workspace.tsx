@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { FileNode } from '@shared/types'
 import { useConfigStore } from '../store/config'
 import { useWorkspaceStore, tabContent, type Tab } from '../store/workspace'
-import { writeFile, createFile } from '../services/fileOps'
-import { insertNode } from '../services/treeOps'
+import { writeFile } from '../services/fileOps'
 import { useWorkspaceRoot } from '../services/workspaceRoot'
 import { optimizePrompt } from '../services/ai'
 import TabBar from './EditorPane/TabBar'
@@ -167,25 +165,11 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   )
 
   /** Create a new Markdown file and open it. */
-  const handleNewFile = useCallback(async (): Promise<void> => {
+  const handleNewFile = useCallback((): void => {
     if (!workspaceRoot) return
-    const path = await createFile(workspaceRoot, t('tree.newFileName'))
-    const name = path.split('/').pop() ?? ''
-    // Newly created files are always empty — skip the readFile IPC.
-    openFile(path, name, '')
-    // Optimistically insert into the tree and enter rename mode so the user
-    // can type a new name right away (matches sidebar + context-menu flows).
-    const state = useWorkspaceStore.getState()
-    if (state.tree) {
-      const newNode: FileNode = {
-        path,
-        name,
-        kind: 'file'
-      }
-      state.setTree(insertNode(state.tree, workspaceRoot, newNode))
-    }
-    state.setPendingRename(path)
-  }, [workspaceRoot, openFile, t])
+    // Show the empty name input in the sidebar; the file is created on commit.
+    useWorkspaceStore.getState().setPendingNewFile(workspaceRoot)
+  }, [workspaceRoot])
 
   /** Switch to the next tab (with wrap-around). */
   const goToNextTab = useCallback(() => {
