@@ -39,6 +39,7 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
   const { open } = useContextMenu()
   const openFile = useWorkspaceStore((s) => s.openFile)
   const renameTab = useWorkspaceStore((s) => s.renameTab)
+  const renameTabsUnder = useWorkspaceStore((s) => s.renameTabsUnder)
   const dropTabsUnder = useWorkspaceStore((s) => s.dropTabsUnder)
   const pendingRenamePath = useWorkspaceStore((s) => s.pendingRenamePath)
   const setPendingRename = useWorkspaceStore((s) => s.setPendingRename)
@@ -107,13 +108,17 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
     const newPath = await renameNode(node.path, newName)
     if (node.kind === 'file') {
       renameTab(node.path, newPath, newName)
+    } else {
+      // Keep every open tab under the renamed folder pointing at valid paths;
+      // otherwise stale tabs would re-create the old path on save.
+      renameTabsUnder(node.path, newPath)
     }
     // Optimistic rename: update the in-memory tree immediately.
     const state = useWorkspaceStore.getState()
     if (state.tree) {
       state.setTree(renameNodeInTree(state.tree, node.path, newPath, newName))
     }
-  }, [node.path, node.kind, renameTab])
+  }, [node.path, node.kind, renameTab, renameTabsUnder])
 
   const handleDelete = async (): Promise<void> => {
     if (inMultiSelect) {
@@ -199,9 +204,15 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
       })
     }
 
-    // Rename — only for single-select
+    // Rename — only for single-select. Going through pendingRenamePath (rather
+    // than setting renaming directly) makes Workspace's editor auto-focus skip
+    // the rename input, and lets commit/cancel restore focus afterwards.
     if (!inMultiSelect) {
-      items.push({ id: 'rename', label: t('tree.rename'), onClick: () => setRenaming(true) })
+      items.push({
+        id: 'rename',
+        label: t('tree.rename'),
+        onClick: () => setPendingRename(node.path)
+      })
     }
 
     // Delete
@@ -232,10 +243,19 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
 
   // Stable callbacks for RenameInput to avoid re-renders from polling tree updates
   const handleRenameCommit = useCallback(
-    (name: string) => {
+    async (name: string) => {
       setRenaming(false)
       clearPendingRename()
-      if (name && name !== node.name) void handleRename(name)
+      if (name && name !== node.name) {
+        try {
+          await handleRename(name)
+        } catch (err) {
+          console.error('Rename failed:', err)
+          // Re-enter rename so the user can correct the name (e.g. invalid
+          // characters on Windows) instead of the row silently reverting.
+          setRenaming(true)
+        }
+      }
     },
     [node.name, handleRename, clearPendingRename]
   )
@@ -322,6 +342,10 @@ function RenameInput({
       onBlur={handleBlur}
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
+        // Ignore keys used by IME composition (pinyin etc.): Enter confirms a
+        // candidate, Escape cancels it — neither should commit or cancel the
+        // rename mid-composition.
+        if (e.nativeEvent.isComposing) return
         if (e.key === 'Enter') {
           e.preventDefault()
           onCommit(value)

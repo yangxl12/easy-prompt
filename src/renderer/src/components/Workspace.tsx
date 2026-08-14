@@ -4,12 +4,12 @@ import { useConfigStore } from '../store/config'
 import { useWorkspaceStore, tabContent, type Tab } from '../store/workspace'
 import { writeFile } from '../services/fileOps'
 import { useWorkspaceRoot } from '../services/workspaceRoot'
-import { optimizePrompt } from '../services/ai'
+import { optimizePrompt, polishText } from '../services/ai'
 import TabBar from './EditorPane/TabBar'
 import CodeEditor, { type EditorCommands } from './EditorPane/CodeEditor'
 import SplitPane from './EditorPane/SplitPane'
 import MarkdownPreview from './PreviewPane/MarkdownPreview'
-import { SparkleIcon, ImageIcon, SettingsIcon } from './ui/icons'
+import { SparkleIcon, FeatherIcon, ImageIcon, SettingsIcon } from './ui/icons'
 import { Button } from './ui/Button'
 import ChoiceDialog from './ui/ChoiceDialog'
 import { useContextMenu, type MenuItemDef } from './ui/ContextMenu'
@@ -34,6 +34,7 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   const tabs = useWorkspaceStore((s) => s.tabs)
   const activePath = useWorkspaceStore((s) => s.activePath)
   const openFile = useWorkspaceStore((s) => s.openFile)
+  const pendingRenamePath = useWorkspaceStore((s) => s.pendingRenamePath)
   const markClean = useWorkspaceStore((s) => s.markClean)
   const closeTab = useWorkspaceStore((s) => s.closeTab)
   const edit = useWorkspaceStore((s) => s.edit)
@@ -54,11 +55,14 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   const [hasSelection, setHasSelection] = useState(false)
 
   // Focus the newly-active editor when the active tab changes.
-  // Skip auto-focus when a tree node just entered rename mode — the RenameInput
+  // Skip auto-focus while a tree node is in rename mode — the RenameInput
   // needs the focus and the editor would steal it (especially on macOS where
   // setTimeout(0) fires before the rename input's synchronous focus settles).
+  // `pendingRenamePath` is also a dependency: when a rename commits/cancels it
+  // transitions to null, and we restore editor focus — otherwise the input's
+  // unmount drops focus to <body> and the next keystrokes go nowhere.
   useEffect(() => {
-    if (activePath && !useWorkspaceStore.getState().pendingRenamePath) {
+    if (activePath && !pendingRenamePath) {
       // Use a short timeout so the browser has a chance to update display:none
       // before we try to focus the (now visible) CodeMirror element.
       const id = setTimeout(() => {
@@ -70,7 +74,7 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
       return () => clearTimeout(id)
     }
     return
-  }, [activePath])
+  }, [activePath, pendingRenamePath])
 
   // Reset selection state when active tab changes — the new editor's selection
   // state will be reported on the next user interaction.
@@ -263,6 +267,47 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   }, [activeTab, t])
 
   /**
+   * Polish the current editor selection as prose (articles, notes, journals).
+   * Same in-place replace flow as optimizeSelection, but tuned for everyday
+   * writing instead of prompt crafting.
+   */
+  const [selectionPolish, setSelectionPolish] = useState<{
+    busy: boolean
+    streaming: string | null
+    error: string | null
+  }>({ busy: false, streaming: null, error: null })
+  const polishAbortRef = useRef<(() => void) | null>(null)
+
+  const polishSelection = useCallback(async (): Promise<void> => {
+    if (!activePath || !activeTab) return
+    const cmds = commandsMapRef.current.get(activePath)
+    if (!cmds) return
+    const selectedText = cmds.getSelectionText()
+    if (!selectedText.trim()) return
+    setSelectionPolish({ busy: true, streaming: '', error: null })
+    try {
+      const { result, abort } = polishText(selectedText, (delta) => {
+        setSelectionPolish((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
+      })
+      // Capture abort synchronously so the stop button works immediately.
+      polishAbortRef.current = abort
+      const { result: polished, aborted } = await result
+      if (aborted) {
+        setSelectionPolish({ busy: false, streaming: null, error: null })
+        return
+      }
+      setSelectionPolish({ busy: false, streaming: null, error: null })
+      // Splice the polished text back into the document, replacing the
+      // original selection in place.
+      cmds.replaceSelection(polished)
+    } catch (err) {
+      setSelectionPolish({ busy: false, streaming: null, error: t('ai.error', { message: (err as Error).message }) })
+    } finally {
+      polishAbortRef.current = null
+    }
+  }, [activeTab, t])
+
+  /**
    * Pick an image: try the system clipboard first (so the common "screenshot
    * then click the button" flow is one click), and fall back to a native file
    * picker when the clipboard has no image or read access is denied. Files are
@@ -357,8 +402,8 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   )
 
   const hasOpenTab = activeTab !== null
-  const busy = optimize.busy || image.busy || selectionOptimize.busy
-  const aiError = optimize.error ?? image.error ?? selectionOptimize.error
+  const busy = optimize.busy || image.busy || selectionOptimize.busy || selectionPolish.busy
+  const aiError = optimize.error ?? image.error ?? selectionOptimize.error ?? selectionPolish.error
 
   // Stats for the status bar: line count + char count of the active document.
   const stats = useMemo(() => {
@@ -426,6 +471,18 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
           {selectionOptimize.busy ? t('ai.working') : t('ai.optimizeSelection')}
         </Button>
 
+        {/* Polish selection as prose — always visible */}
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!aiReady || !hasOpenTab || !hasSelection || busy}
+          title={!hasSelection ? t('ai.selectTextFirst') : t('ai.polishHelp')}
+          onClick={() => void polishSelection()}
+        >
+          <FeatherIcon />
+          {selectionPolish.busy ? t('ai.working') : t('ai.polishSelection')}
+        </Button>
+
         {/* Stop button — visible during any AI operation */}
         {busy && (
           <Button
@@ -434,6 +491,7 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
             onClick={() => {
               if (optimize.busy) optimize.abort()
               if (selectionOptimize.busy) selAbortRef.current?.()
+              if (selectionPolish.busy) polishAbortRef.current?.()
             }}
           >
             {t('ai.stop')}
@@ -532,6 +590,19 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
           </div>
           <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-text">
             {selectionOptimize.streaming || '…'}
+          </pre>
+        </div>
+      )}
+
+      {/* Live streaming preview for selection polishing. */}
+      {selectionPolish.streaming !== null && (
+        <div className="border-b border-border bg-accent-soft/40 px-3 py-2">
+          <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+            {t('ai.streaming')}
+          </div>
+          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-text">
+            {selectionPolish.streaming || '…'}
           </pre>
         </div>
       )}

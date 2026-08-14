@@ -70,8 +70,7 @@ function renameDescendant(
 /**
  * Remove the node at `nodePath` and all its descendants from the tree.
  * Returns a new tree; the original is not mutated.
- */
-export function removeNodeFromTree(
+ */export function removeNodeFromTree(
   tree: FileNode,
   nodePath: string
 ): FileNode | null {
@@ -90,6 +89,16 @@ export function removeNodeFromTree(
 /* ------------------------------------------------------------------ */
 /*  Internals                                                          */
 /* ------------------------------------------------------------------ */
+
+/** Find a node by exact path, or null if it's not in the tree. */
+export function findNode(tree: FileNode, path: string): FileNode | null {
+  if (tree.path === path) return tree
+  for (const child of tree.children ?? []) {
+    const found = findNode(child, path)
+    if (found) return found
+  }
+  return null
+}
 
 /** Apply a transformation to every node in the tree, returning the new tree. */
 function mapNode(

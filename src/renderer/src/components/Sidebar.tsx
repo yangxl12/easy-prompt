@@ -4,7 +4,7 @@ import type { FileNode } from '@shared/types'
 import { useConfigStore } from '../store/config'
 import { useWorkspaceStore } from '../store/workspace'
 import { watchTree, createFolder } from '../services/fileOps'
-import { insertNode } from '../services/treeOps'
+import { insertNode, findNode } from '../services/treeOps'
 import FileTreeView, { flattenTree } from './FileTree/FileTreeView'
 import NewFileInput from './FileTree/NewFileInput'
 import { PlusIcon, ChevronLeftIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from './ui/icons'
@@ -36,7 +36,22 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
 
   // Subscribe to workspace tree changes on mount.
   useEffect(() => {
-    const unsub = watchTree((next) => setTree(next))
+    const unsub = watchTree((next) => {
+      const state = useWorkspaceStore.getState()
+      // A poll can race an optimistic create-folder: if the fresh tree is
+      // missing the node currently being renamed, re-insert it from the
+      // previous tree so the RenameInput doesn't unmount mid-typing.
+      // (Self-corrects once the next poll sees the folder on disk.)
+      if (state.pendingRenamePath && state.tree) {
+        const pending = findNode(state.tree, state.pendingRenamePath)
+        if (pending && !findNode(next, state.pendingRenamePath)) {
+          const parentDir = pending.path.slice(0, pending.path.length - pending.name.length)
+          state.setTree(insertNode(next, parentDir, pending))
+          return
+        }
+      }
+      setTree(next)
+    })
     return unsub
   }, [setTree])
 

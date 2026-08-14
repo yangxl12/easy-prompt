@@ -34,14 +34,11 @@ function detectLanguageName(text: string, fallback: Language): string {
 }
 
 /**
- * Optimize (polish) a prompt. Returns a promise for the improved text and a
- * synchronous abort function that cancels the in-flight call immediately.
+ * Stream an AI text call with abort support. Returns a promise for the
+ * assembled text and a synchronous abort function that cancels the in-flight
+ * call immediately.
  *
- * Two things keep the model from silently translating the prompt into English:
- *  1. We detect the original prompt's language and name it explicitly.
- *  2. The instruction "DO NOT translate" is stated as a hard rule, up front.
- *
- * Streaming is used so the UI can show the polished text as it is produced,
+ * Streaming is used so the UI can show the produced text as it arrives,
  * rather than blocking until the whole response is ready. When `onDelta` is
  * supplied, it is invoked for each incremental token chunk; the final
  * fully-assembled text is still returned by the promise.
@@ -49,21 +46,11 @@ function detectLanguageName(text: string, fallback: Language): string {
  * The abort function is returned synchronously — callers can cancel
  * immediately without waiting for the promise to settle.
  */
-export function optimizePrompt(
+function streamText(
+  systemPrompt: string,
   text: string,
   onDelta?: (delta: string) => void
 ): { result: Promise<{ result: string; aborted: boolean }>; abort: () => void } {
-  const appLang = useConfigStore.getState().config.app.language
-  const outLang = detectLanguageName(text, appLang)
-  const systemPrompt = [
-    'You are a prompt engineer. Polish the user-provided prompt to make it clearer, more fluent, and better structured.',
-    'CRITICAL: The output MUST be written in ' + outLang + '.',
-    'DO NOT translate the prompt into another language — keep it in the same language as the original.',
-    'Preserve the core intent exactly — do not add or remove requirements.',
-    'Keep all code, variable names, identifiers, and URLs unchanged.',
-    'Respond with ONLY the improved prompt text, no preamble, no explanation, no code fences.'
-  ].join(' ')
-
   // Stream: subscribe FIRST, then issue the call. Because we generate the
   // streamId here and pass it to main, every chunk — even ones that arrive
   // before invoke resolves — is matched to this call.
@@ -123,6 +110,52 @@ export function optimizePrompt(
   })()
 
   return { result, abort }
+}
+
+/**
+ * Optimize (polish) a prompt. Two things keep the model from silently
+ * translating the prompt into English:
+ *  1. We detect the original prompt's language and name it explicitly.
+ *  2. The instruction "DO NOT translate" is stated as a hard rule, up front.
+ */
+export function optimizePrompt(
+  text: string,
+  onDelta?: (delta: string) => void
+): { result: Promise<{ result: string; aborted: boolean }>; abort: () => void } {
+  const appLang = useConfigStore.getState().config.app.language
+  const outLang = detectLanguageName(text, appLang)
+  const systemPrompt = [
+    'You are a prompt engineer. Polish the user-provided prompt to make it clearer, more fluent, and better structured.',
+    'CRITICAL: The output MUST be written in ' + outLang + '.',
+    'DO NOT translate the prompt into another language — keep it in the same language as the original.',
+    'Preserve the core intent exactly — do not add or remove requirements.',
+    'Keep all code, variable names, identifiers, and URLs unchanged.',
+    'Respond with ONLY the improved prompt text, no preamble, no explanation, no code fences.'
+  ].join(' ')
+  return streamText(systemPrompt, text, onDelta)
+}
+
+/**
+ * Polish a piece of prose (articles, notes, journals). Unlike optimizePrompt,
+ * this targets everyday writing: smoother flow, clearer logic, and a touch of
+ * elegance — without changing the facts or meaning.
+ */
+export function polishText(
+  text: string,
+  onDelta?: (delta: string) => void
+): { result: Promise<{ result: string; aborted: boolean }>; abort: () => void } {
+  const appLang = useConfigStore.getState().config.app.language
+  const outLang = detectLanguageName(text, appLang)
+  const systemPrompt = [
+    'You are a skilled copy editor for everyday writing — articles, notes, and journals.',
+    'Polish the provided text so it reads smoothly and naturally, with clear logic and a touch of literary elegance that makes it pleasant to read.',
+    'CRITICAL: The output MUST be written in ' + outLang + '.',
+    'DO NOT translate the text into another language — keep it in the same language as the original.',
+    'Preserve the original meaning, facts, and personal voice exactly — do not add, remove, or invent content.',
+    'Keep names, numbers, dates, code, and URLs unchanged.',
+    'Respond with ONLY the polished text, no preamble, no explanation, no code fences.'
+  ].join(' ')
+  return streamText(systemPrompt, text, onDelta)
 }
 
 /** Describe a UI image and turn it into a structured prompt. */

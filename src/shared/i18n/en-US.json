@@ -76,6 +76,8 @@
     "stop": "Stop",
     "optimizeWholeFile": "Optimize entire file",
     "optimizeSelection": "Optimize selected prompt",
+    "polishSelection": "Polish text",
+    "polishHelp": "Polish for fluency, logic, and elegance — great for articles and daily notes",
     "selectTextFirst": "Select text to optimize",
     "stopping": "Stopping…",
     "capturedImage": "Image captured — click \"Convert to prompt\" to generate a prompt",

@@ -76,6 +76,8 @@
     "stop": "停止",
     "optimizeWholeFile": "优化整个文件内容",
     "optimizeSelection": "优化选中的提示词",
+    "polishSelection": "文字润色",
+    "polishHelp": "润色文字，使其更通顺、更有逻辑与文采，适合文章与日常记录",
     "selectTextFirst": "必须选中文字才能优化",
     "stopping": "正在停止…",
     "capturedImage": "已捕获图片，点击「转换为提示词」生成提示词",

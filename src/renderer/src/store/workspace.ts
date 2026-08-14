@@ -34,6 +34,8 @@ interface WorkspaceState {
   markClean: (path: string) => void
   /** Rename a tab's path (used after a rename operation). */
   renameTab: (oldPath: string, newPath: string, newName: string) => void
+  /** Rewrite open tabs whose paths live under a renamed folder. */
+  renameTabsUnder: (oldPrefix: string, newPrefix: string) => void
   /** Remove tabs whose paths start with the given prefix (deleted files). */
   dropTabsUnder: (prefix: string) => void
   /** Reorder tabs by moving the tab at fromIndex to toIndex. */
@@ -127,6 +129,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       ),
       activePath: s.activePath === oldPath ? newPath : s.activePath
     })),
+
+  renameTabsUnder: (oldPrefix, newPrefix) =>
+    set((s) => {
+      // Path separator: main-process paths use backslashes on Windows.
+      const sep = (p: string): string => (p.includes('\\') ? '\\' : '/')
+      const under = (p: string): boolean =>
+        p === oldPrefix || p.startsWith(oldPrefix + sep(p))
+      const tabs = s.tabs.map((t) =>
+        under(t.path) ? { ...t, path: newPrefix + t.path.slice(oldPrefix.length) } : t
+      )
+      const activePath =
+        s.activePath && under(s.activePath)
+          ? newPrefix + s.activePath.slice(oldPrefix.length)
+          : s.activePath
+      return { tabs, activePath }
+    }),
 
   dropTabsUnder: (prefix) =>
     set((s) => {
