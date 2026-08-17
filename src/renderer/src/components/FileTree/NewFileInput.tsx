@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '../../store/workspace'
-import { createFile } from '../../services/fileOps'
+import { createFile, createFolder } from '../../services/fileOps'
 import { insertNode } from '../../services/treeOps'
 
 interface Props {
-  /** Directory where the new Markdown file will be created on commit. */
+  /** Directory where the new node will be created on commit. */
   dir: string
+  kind?: 'file' | 'folder'
 }
 
 /**
@@ -15,7 +16,7 @@ interface Props {
  * empty value; creates the file when committed with a non-empty name
  * (Enter or click-away/blur). Escape cancels.
  */
-export default function NewFileInput({ dir }: Props): JSX.Element {
+export default function NewFileInput({ dir, kind = 'file' }: Props): JSX.Element {
   const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement>(null)
   const mountedRef = useRef(true)
@@ -50,11 +51,17 @@ export default function NewFileInput({ dir }: Props): JSX.Element {
     busyRef.current = true
     setError(null)
     try {
-      const path = await createFile(dir, name)
-      const fileName = path.split('/').pop() ?? ''
+      const path = kind === 'folder' ? await createFolder(dir, name) : await createFile(dir, name)
+      const fileName = path.split(/[\\/]/).pop() ?? ''
       const state = useWorkspaceStore.getState()
       if (state.tree) {
-        state.setTree(insertNode(state.tree, dir, { path, name: fileName, kind: 'file' }))
+        state.setTree(
+          insertNode(state.tree, dir, {
+            path,
+            name: fileName,
+            kind
+          })
+        )
       }
       // Only open the new file when the user is still on the input (Enter) or
       // clicked a neutral area (editor / preview). If they clicked a tree-row
@@ -62,7 +69,7 @@ export default function NewFileInput({ dir }: Props): JSX.Element {
       // let this late-arriving commit override it.
       const el = document.activeElement as HTMLElement | null
       const clickedTreeRow = !!el?.closest('button')
-      if (!clickedTreeRow) {
+      if (!clickedTreeRow && kind === 'file') {
         state.openFile(path, fileName, '')
       }
     } catch (err) {
@@ -74,7 +81,7 @@ export default function NewFileInput({ dir }: Props): JSX.Element {
     }
     clear()
     busyRef.current = false
-  }, [dir, value, clear])
+  }, [dir, kind, value, clear])
 
   const handleBlur = (): void => {
     if (mountedRef.current) void commit()
@@ -85,7 +92,7 @@ export default function NewFileInput({ dir }: Props): JSX.Element {
       <input
         ref={inputRef}
         value={value}
-        placeholder={t('tree.newFilePlaceholder')}
+        placeholder={kind === 'folder' ? t('tree.newFolderPlaceholder') : t('tree.newFilePlaceholder')}
         className="w-full rounded border border-accent bg-bg-base px-1.5 py-1 text-[13px] outline-none placeholder:text-text-muted"
         onChange={(e) => {
           setValue(e.target.value)

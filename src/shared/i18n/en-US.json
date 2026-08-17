@@ -16,6 +16,14 @@
     "newFile": "New Markdown Document",
     "newFilePlaceholder": "Enter file name…",
     "newFolder": "New Folder",
+    "newFolderPlaceholder": "Enter folder name…",
+    "mark": "Mark",
+    "colors": {
+      "red": "Red",
+      "orange": "Orange",
+      "yellow": "Yellow",
+      "green": "Green"
+    },
     "copy": "Copy",
     "rename": "Rename",
     "delete": "Delete",

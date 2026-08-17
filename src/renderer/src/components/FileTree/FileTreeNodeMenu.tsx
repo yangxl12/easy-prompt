@@ -4,7 +4,6 @@ import type { FileNode } from '@shared/types'
 import { useContextMenu, type MenuItemDef } from '../ui/ContextMenu'
 import { useWorkspaceStore } from '../../store/workspace'
 import {
-  createFolder,
   renameNode,
   deleteNode,
   deleteNodes,
@@ -12,11 +11,7 @@ import {
   showInFolder,
   readFileSync
 } from '../../services/fileOps'
-import {
-  insertNode,
-  renameNodeInTree,
-  removeNodeFromTree
-} from '../../services/treeOps'
+import { renameNodeInTree, removeNodeFromTree } from '../../services/treeOps'
 
 interface Props {
   node: FileNode
@@ -47,6 +42,7 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
   const selectedPaths = useWorkspaceStore((s) => s.selectedPaths)
   const setSelectedPaths = useWorkspaceStore((s) => s.setSelectedPaths)
   const setLastClickedPath = useWorkspaceStore((s) => s.setLastClickedPath)
+  const setMarker = useWorkspaceStore((s) => s.setMarker)
   const [renaming, setRenaming] = useState(false)
 
   const parentDir = node.kind === 'folder' ? node.path : node.path.slice(0, node.path.length - node.name.length)
@@ -59,26 +55,13 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
     onCreatedInFolder?.()
     const dir = node.kind === 'folder' ? node.path : parentDir
     // Don't create the file yet — show an empty input; it is created on commit.
-    useWorkspaceStore.getState().setPendingNewFile(dir)
+    useWorkspaceStore.getState().setPendingNewFile(dir, 'file')
   }
 
-  const handleNewFolder = async (): Promise<void> => {
+  const handleNewFolder = (): void => {
     onCreatedInFolder?.()
     const dir = node.kind === 'folder' ? node.path : parentDir
-    const path = await createFolder(dir, t('tree.newFolderName'))
-    const name = path.split('/').pop() ?? ''
-    // Optimistic insert
-    const state = useWorkspaceStore.getState()
-    if (state.tree) {
-      const newNode: FileNode = {
-        path,
-        name,
-        kind: 'folder',
-        children: []
-      }
-      state.setTree(insertNode(state.tree, dir, newNode))
-    }
-    setPendingRename(path)
+    useWorkspaceStore.getState().setPendingNewFile(dir, 'folder')
   }
 
   const handleCopy = async (): Promise<void> => {
@@ -167,6 +150,40 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
         label: t('tree.newFolder'),
         onClick: handleNewFolder,
         separatorAfter: true
+      })
+    }
+
+    if (!inMultiSelect && node.kind === 'file') {
+      items.push({
+        id: 'mark',
+        label: t('tree.mark'),
+        onClick: () => {},
+        submenu: [
+          {
+            id: 'red',
+            label: t('tree.colors.red'),
+            swatch: 'bg-red-500',
+            onClick: () => setMarker(node.path, 'red')
+          },
+          {
+            id: 'orange',
+            label: t('tree.colors.orange'),
+            swatch: 'bg-orange-500',
+            onClick: () => setMarker(node.path, 'orange')
+          },
+          {
+            id: 'yellow',
+            label: t('tree.colors.yellow'),
+            swatch: 'bg-yellow-400',
+            onClick: () => setMarker(node.path, 'yellow')
+          },
+          {
+            id: 'green',
+            label: t('tree.colors.green'),
+            swatch: 'bg-green-500',
+            onClick: () => setMarker(node.path, 'green')
+          }
+        ]
       })
     }
 

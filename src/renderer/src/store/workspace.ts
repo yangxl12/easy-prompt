@@ -1,5 +1,34 @@
 import { create } from 'zustand'
 import type { FileNode } from '@shared/types'
+import {
+  applyTreeOrder,
+  findParentPath,
+  mergeTreeOrder,
+  moveNodeInTree,
+  type TreeOrder
+} from '../services/treeOps'
+
+export type FileMarker = 'red' | 'orange' | 'yellow' | 'green'
+
+const TREE_ORDER_STORAGE_KEY = 'easyprompt.tree-order'
+const FILE_MARKER_STORAGE_KEY = 'easyprompt.file-markers'
+
+function readStorage<T>(key: string, fallback: T): T {
+  try {
+    const value = localStorage.getItem(key)
+    return value ? (JSON.parse(value) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeStorage(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Local UI metadata is best-effort and must never block file operations.
+  }
+}
 
 /**
  * Per-tab state. `dirtyContent` holds edits not yet written to disk; when set,
@@ -19,6 +48,7 @@ export interface Tab {
 
 interface WorkspaceState {
   tree: FileNode | null
+  treeOrder: TreeOrder
   tabs: Tab[]
   activePath: string | null
 
@@ -50,8 +80,14 @@ interface WorkspaceState {
   clearPendingRename: () => void
   /** Directory where a "new markdown" input is shown; the file is only created on commit. */
   pendingNewFileDir: string | null
-  setPendingNewFile: (dir: string) => void
+  pendingNewFileKind: 'file' | 'folder'
+  setPendingNewFile: (dir: string, kind?: 'file' | 'folder') => void
   clearPendingNewFile: () => void
+  /** Reorder direct siblings in the file tree. */
+  reorderTree: (sourcePath: string, targetPath: string, before: boolean) => void
+  /** UI-only color markers, persisted separately from user Markdown content. */
+  markers: Record<string, FileMarker>
+  setMarker: (path: string, marker: FileMarker | null) => void
   /** Multi-select in the file tree. */
   selectedPaths: string[]
   lastClickedPath: string | null
@@ -65,7 +101,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   tabs: [],
   activePath: null,
 
-  setTree: (tree) => set({ tree }),
+  treeOrder: readStorage<TreeOrder>(TREE_ORDER_STORAGE_KEY, {}),
+  markers: readStorage<Record<string, FileMarker>>(FILE_MARKER_STORAGE_KEY, {}),
+
+  setTree: (tree) =>
+    set((s) => {
+      const treeOrder = mergeTreeOrder(s.tree, tree, s.treeOrder)
+      writeStorage(TREE_ORDER_STORAGE_KEY, treeOrder)
+      return { tree: applyTreeOrder(tree, treeOrder), treeOrder }
+    }),
 
   openFile: (path: string, name: string, content: string, readOnly?: boolean) =>
     set((s) => {
@@ -198,10 +242,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   clearPendingRename: () => set({ pendingRenamePath: null }),
 
   pendingNewFileDir: null,
+  pendingNewFileKind: 'file',
 
-  setPendingNewFile: (dir) => set({ pendingNewFileDir: dir }),
+  setPendingNewFile: (dir, kind = 'file') =>
+    set({ pendingNewFileDir: dir, pendingNewFileKind: kind }),
 
-  clearPendingNewFile: () => set({ pendingNewFileDir: null }),
+  clearPendingNewFile: () => set({ pendingNewFileDir: null, pendingNewFileKind: 'file' }),
+
+  reorderTree: (sourcePath, targetPath, before) =>
+    set((s) => {
+      if (!s.tree) return s
+      const parentPath = findParentPath(s.tree, sourcePath)
+      if (!parentPath) return s
+      const tree = moveNodeInTree(s.tree, sourcePath, targetPath, before)
+      if (!tree) return s
+      const parent = findNode(tree, parentPath)
+      if (!parent || parent.kind !== 'folder') return s
+      const treeOrder: TreeOrder = {
+        ...s.treeOrder,
+        [parentPath]: (parent.children ?? []).map((child) => child.path)
+      }
+      writeStorage(TREE_ORDER_STORAGE_KEY, treeOrder)
+      return { tree, treeOrder }
+    }),
+
+  setMarker: (path, marker) =>
+    set((s) => {
+      const markers = { ...s.markers }
+      if (marker) markers[path] = marker
+      else delete markers[path]
+      writeStorage(FILE_MARKER_STORAGE_KEY, markers)
+      return { markers }
+    }),
 
   selectedPaths: [],
   lastClickedPath: null,
@@ -218,6 +290,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   setLastClickedPath: (path) => set({ lastClickedPath: path })
 }))
+
+function findNode(tree: FileNode, path: string): FileNode | null {
+  if (tree.path === path) return tree
+  for (const child of tree.children ?? []) {
+    const found = findNode(child, path)
+    if (found) return found
+  }
+  return null
+}
 
 /** Helper: get the effective content for a tab (dirty or saved). */
 export function tabContent(tab: Tab | undefined): string {

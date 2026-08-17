@@ -16,6 +16,14 @@
     "newFile": "新建 Markdown 文档",
     "newFilePlaceholder": "输入文件名…",
     "newFolder": "新建文件夹",
+    "newFolderPlaceholder": "输入文件夹名称…",
+    "mark": "打标记",
+    "colors": {
+      "red": "红色",
+      "orange": "橙色",
+      "yellow": "黄色",
+      "green": "绿色"
+    },
     "copy": "复制",
     "rename": "重命名",
     "delete": "删除",

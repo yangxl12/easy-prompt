@@ -13,6 +13,10 @@
   --color-text-muted: 113 113 122; /* #71717a */
   --color-accent: 79 70 229; /* indigo-600 */
   --color-accent-soft: 224 231 255;
+  --color-editor-heading: 67 56 202;
+  --color-editor-markup: 82 82 91;
+  --color-editor-link: 37 99 235;
+  --color-editor-code: 159 69 118;
 }
 
 /* ---- Dark theme ---- */
@@ -26,6 +30,10 @@
   --color-text-muted: 161 161 170; /* #a1a1aa */
   --color-accent: 129 140 248; /* indigo-400 */
   --color-accent-soft: 49 46 129;
+  --color-editor-heading: 165 180 252;
+  --color-editor-markup: 212 212 216;
+  --color-editor-link: 147 197 253;
+  --color-editor-code: 249 168 212;
 }
 
 html,

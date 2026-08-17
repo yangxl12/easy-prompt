@@ -4,8 +4,39 @@ import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirro
 import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from '@codemirror/language'
+import { HighlightStyle, syntaxHighlighting, bracketMatching } from '@codemirror/language'
 import { search, searchKeymap } from '@codemirror/search'
+import { tags } from '@lezer/highlight'
+
+const markdownHighlightStyle = HighlightStyle.define([
+  {
+    tag: [tags.heading, tags.heading1, tags.heading2, tags.heading3, tags.heading4, tags.heading5, tags.heading6],
+    color: 'rgb(var(--color-editor-heading))',
+    fontWeight: '700'
+  },
+  {
+    tag: [tags.contentSeparator, tags.quote, tags.punctuation],
+    color: 'rgb(var(--color-editor-markup))',
+    fontWeight: '600'
+  },
+  {
+    tag: [tags.emphasis, tags.strong, tags.strikethrough],
+    color: 'rgb(var(--color-text))'
+  },
+  {
+    tag: [tags.link, tags.url],
+    color: 'rgb(var(--color-editor-link))',
+    textDecoration: 'underline'
+  },
+  {
+    tag: [tags.monospace, tags.string, tags.atom],
+    color: 'rgb(var(--color-editor-code))'
+  },
+  {
+    tag: [tags.comment, tags.meta],
+    color: 'rgb(var(--color-editor-markup))'
+  }
+])
 
 interface CodeEditorProps {
   value: string
@@ -323,7 +354,7 @@ export default function CodeEditor({
       history(),
       bracketMatching(),
       highlightActiveLine(),
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      syntaxHighlighting(markdownHighlightStyle, { fallback: true }),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search({ top: true }),
       workspaceKeymap,

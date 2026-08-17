@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { FileNode } from '@shared/types'
 import { useConfigStore } from '../store/config'
 import { useWorkspaceStore } from '../store/workspace'
-import { watchTree, createFolder } from '../services/fileOps'
+import { watchTree } from '../services/fileOps'
 import { insertNode, findNode } from '../services/treeOps'
-import FileTreeView, { flattenTree } from './FileTree/FileTreeView'
+import FileTreeView, { FileTreeDragProvider, flattenTree } from './FileTree/FileTreeView'
 import NewFileInput from './FileTree/NewFileInput'
 import { PlusIcon, ChevronLeftIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from './ui/icons'
 import { useContextMenu } from './ui/ContextMenu'
@@ -25,9 +24,13 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
   const root = useWorkspaceRoot()
   const setPendingRename = useWorkspaceStore((s) => s.setPendingRename)
   const pendingNewFileDir = useWorkspaceStore((s) => s.pendingNewFileDir)
+  const pendingNewFileKind = useWorkspaceStore((s) => s.pendingNewFileKind)
   const setPendingNewFile = useWorkspaceStore((s) => s.setPendingNewFile)
   const selectedPaths = useWorkspaceStore((s) => s.selectedPaths)
   const lastClickedPath = useWorkspaceStore((s) => s.lastClickedPath)
+  const activePath = useWorkspaceStore((s) => s.activePath)
+  const setSelectedPaths = useWorkspaceStore((s) => s.setSelectedPaths)
+  const setLastClickedPath = useWorkspaceStore((s) => s.setLastClickedPath)
   const collapsed = config.app.sidebarCollapsed
   const { open: openContextMenu } = useContextMenu()
 
@@ -55,26 +58,24 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
     return unsub
   }, [setTree])
 
+  // Keep the tree selection in step with tab activation. This is intentionally
+  // separate from the multi-select state: Shift-click still selects a range,
+  // while switching tabs restores one unambiguous active tree row.
+  const activeInTree = Boolean(activePath && tree && findNode(tree, activePath))
+  useEffect(() => {
+    if (!activePath || !activeInTree) return
+    setSelectedPaths([activePath])
+    setLastClickedPath(activePath)
+  }, [activePath, activeInTree, setSelectedPaths, setLastClickedPath])
+
   const handleNewFile = useCallback((): void => {
     if (!root) return
-    setPendingNewFile(root)
+    setPendingNewFile(root, 'file')
   }, [root, setPendingNewFile])
 
-  const handleNewFolder = async (): Promise<void> => {
+  const handleNewFolder = (): void => {
     if (!root) return
-    const path = await createFolder(root, t('tree.newFolderName'))
-    const name = path.split('/').pop() ?? ''
-    const state = useWorkspaceStore.getState()
-    if (state.tree) {
-      const newNode: FileNode = {
-        path,
-        name,
-        kind: 'folder',
-        children: []
-      }
-      state.setTree(insertNode(state.tree, root, newNode))
-    }
-    setPendingRename(path)
+    setPendingNewFile(root, 'folder')
   }
 
   const handleOpenFolder = async (): Promise<void> => {
@@ -129,7 +130,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
         {
           id: 'blank-new-folder',
           label: t('tree.newFolder'),
-          onClick: () => void handleNewFolder()
+          onClick: handleNewFolder
         }
       ])
     },
@@ -171,14 +172,14 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
         </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => void handleNewFile()}
+            onClick={handleNewFile}
             className="rounded p-1 text-text-muted hover:bg-bg-subtle hover:text-text"
             title={t('tree.newFile')}
           >
             <PlusIcon />
           </button>
           <button
-            onClick={() => void handleNewFolder()}
+            onClick={handleNewFolder}
             className="rounded p-1 text-text-muted hover:bg-bg-subtle hover:text-text"
             title={t('tree.newFolder')}
           >
@@ -223,17 +224,21 @@ export default function Sidebar({ onOpenSettings }: SidebarProps): JSX.Element {
           </div>
         ) : (
           <>
-            {pendingNewFileDir === root && <NewFileInput dir={root} />}
             {tree && tree.children && tree.children.length > 0 ? (
-              <FileTreeView node={tree} flatPaths={flatPaths} />
+              <FileTreeDragProvider>
+                <FileTreeView node={tree} flatPaths={flatPaths} />
+              </FileTreeDragProvider>
             ) : pendingNewFileDir !== root ? (
               <button
-                onClick={() => void handleNewFile()}
+                onClick={handleNewFile}
                 className="px-2 py-4 text-left text-xs text-text-muted hover:text-text"
               >
                 {t('tree.empty')}
               </button>
             ) : null}
+            {pendingNewFileDir === root && (
+              <NewFileInput dir={root} kind={pendingNewFileKind} />
+            )}
           </>
         )}
       </div>

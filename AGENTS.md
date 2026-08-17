@@ -1,129 +1,123 @@
-# EasyPrompt — AI 辅助说明
+# EasyPrompt 开发指南
 
-跨平台桌面 AI Prompt 编辑器，用 **Electron + TypeScript + React** 构建。Markdown 文件存本地，不做数据库锁定。
+EasyPrompt 是一个本地优先的桌面 Prompt 编辑器。技术栈为 Electron 33、TypeScript、React 18、Zustand 5、Tailwind CSS 3 和 CodeMirror 6。用户内容直接保存为工作区中的 Markdown 文件，不使用数据库。
 
-## 技术栈
+## Agent 工作约束
 
-| 层 | 选型 |
-|---|---|
-| 框架 | Electron 33 + electron-vite + electron-builder |
-| 主进程/预加载 | TypeScript, contextBridge |
-| 渲染进程 | React 18, Zustand 5, Tailwind CSS 3 |
-| 编辑器 | CodeMirror 6 (`@codemirror/lang-markdown`) |
-| 预览 | markdown-it + highlight.js |
-| 国际化 | i18next + react-i18next |
-| 存储 | 手写 JSON 文件 + `safeStorage` 加密 API Key |
-| AI 调用 | OpenAI 兼容 HTTP 客户端（支持 DeepSeek / 智谱 / 自定义） |
+- 先读相关调用链再修改，优先做范围小、可验证的修复；不要顺手重构无关代码。
+- Windows 上执行 PowerShell 必须使用：
+  ```powershell
+  & 'C:\Users\BYS\AppData\Local\Programs\PowerShell\7\pwsh.exe' -NoProfile -Command '你的脚本内容'
+  ```
+  禁止调用 `powershell.exe`。
+- 使用 `pnpm` 和 `package.json` 中已有脚本，不要自行切换包管理器。
+- 不要编辑或提交 `node_modules/`、`out/`、`release/`、`.dev-data/` 等生成内容。
+- 修改界面文案时同步更新 `src/shared/i18n/zh-CN.json` 与 `en-US.json`。
+- 修改 IPC 时必须同步检查：`src/shared/types.ts` -> `src/main/ipc/index.ts` -> `src/preload/index.ts` -> 渲染进程调用方。渲染进程不得直接使用 Node/Electron API。
 
-## 架构：三进程模型
+## 快速理解项目
 
-```
-┌─────────────────────────────────────────────────┐
-│  主进程 (src/main/)                              │
-│  - 窗口/托盘/全局快捷键生命周期                    │
-│  - IPC handler（config / fs / ai）               │
-│  - JSON 配置文件读写 + safeStorage 加密            │
-│  - AI HTTP 请求（含 SSE 流式）                    │
-└───────────┬─────────────────────────────────────┘
-            │ contextBridge
-┌───────────▼─────────────────────────────────────┐
-│  预加载 (src/preload/index.ts)                   │
-│  - window.api 类型化 API 桥接                    │
-│  - 渲染进程只能访问 api，拿不到 Node 能力          │
-└───────────┬─────────────────────────────────────┘
-            │ window.api
-┌───────────▼─────────────────────────────────────┐
-│  渲染进程 (src/renderer/)                        │
-│  - React SPA，Zustand 管理状态                   │
-│  - 通过 window.api 调用主进程能力                 │
-└─────────────────────────────────────────────────┘
+建议按以下顺序阅读：
+
+1. `src/shared/types.ts`：领域类型和 IPC channel 的唯一来源。
+2. `src/preload/index.ts`：渲染进程可用的全部 `window.api` 能力。
+3. `src/main/ipc/index.ts`：跨进程编排、副作用入口和事件推送。
+4. `src/main/services/fs.ts`、`ai.ts`、`config/store.ts`：文件、AI、配置的真实实现。
+5. `src/renderer/src/store/`：配置和工作区状态模型。
+6. `src/renderer/src/components/Workspace.tsx`、`Sidebar.tsx`：主要交互编排。
+
+```text
+Renderer (React/Zustand)
+  -> window.api
+Preload (contextBridge)
+  -> ipcRenderer
+Main IPC
+  -> config / fs / ai services
+  -> local files, safeStorage, provider HTTP API
 ```
 
-## 目录结构速查
+## 目录职责
 
-```
-src/
-├─ main/
-│  ├─ index.ts            # app 启动、单实例锁、CSP、菜单
-│  ├─ window.ts           # BrowserWindow 创建/隐藏到托盘
-│  ├─ tray.ts             # 系统托盘
-│  ├─ shortcut.ts         # 全局快捷键注册
-│  ├─ config/store.ts     # JSON 配置读写 + 密钥加密
-│  ├─ services/
-│  │  ├─ ai.ts            # OpenAI 兼容客户端（流式 + 非流式）
-│  │  └─ fs.ts            # 文件树读取、CRUD、回收站删除
-│  └─ ipc/index.ts        # 所有 IPC handler 注册
-├─ preload/index.ts       # contextBridge 暴露 window.api
-├─ shared/                # 主进程 & 渲染进程共享
-│  ├─ types.ts            # 所有 TS 类型 + IPC channel 常量
-│  ├─ presets.ts          # AI 模型预设（DeepSeek / 智谱）
-│  ├─ i18n/               # 中英文翻译资源
-│  └─ defaults.ts         # 默认配置值
-└─ renderer/src/
-   ├─ main.tsx            # React 入口
-   ├─ App.tsx             # 顶层路由（欢迎页 → 工作区）
-   ├─ components/
-   │  ├─ Workspace.tsx    # 主工作区（编辑器 + 预览 + AI 按钮）
-   │  ├─ EditorPane/      # CodeMirror 编辑器、标签页、分栏
-   │  ├─ PreviewPane/     # Markdown 渲染预览
-   │  ├─ FileTree/        # 文件树 + 右键菜单
-   │  ├─ Sidebar.tsx      # 左侧栏（文件树 + AI 按钮容器）
-   │  ├─ SettingsDialog.tsx # 设置弹窗（主题/语言/AI模型/快捷键）
-   │  ├─ TitleBar.tsx     # 自定义标题栏
-   │  └─ ui/              # 通用 UI 组件（Button, ContextMenu, icons）
-   ├─ features/
-   │  ├─ useOptimizePrompt.ts  # "优化 Prompt" AI 交互逻辑
-   │  └─ useImageToPrompt.ts   # "截图转 Prompt" AI 交互逻辑
-   ├─ services/
-   │  ├─ ai.ts            # AI 调用封装（调 window.api.callAI）
-   │  ├─ fileOps.ts       # 文件操作封装（调 window.api.*）
-   │  └─ markdown.ts      # markdown-it 渲染器配置
-   └─ store/
-      ├─ config.ts        # 配置 Zustand store（主题/语言/AI）
-      └─ workspace.ts     # 工作区 Zustand store（文件树/标签页）
+```text
+src/main/
+  index.ts             启动、单实例、CSP、菜单、退出策略
+  window.ts            BrowserWindow、显隐和导航保护
+  tray.ts              托盘及其国际化菜单
+  shortcut.ts          全局唤起快捷键
+  config/store.ts      config.json、缓存、密钥处理、原子写入
+  services/fs.ts       Markdown 文件树和 CRUD
+  services/ai.ts       OpenAI 兼容请求、SSE 解析
+  ipc/index.ts         所有 IPC handler 与事件广播
+src/preload/index.ts   类型化 contextBridge
+src/shared/            跨进程类型、默认值、模型预设、语言资源
+src/renderer/src/
+  components/          工作区、编辑器、文件树、设置、预览和通用 UI
+  features/            完整 Prompt 优化、图片转 Prompt 工作流
+  services/            window.api 封装、Markdown、树操作
+  store/               Zustand 配置与标签页状态
 ```
 
-## 关键数据流
+## 必须保持的行为契约
 
-### 配置读写
-```
-渲染进程: store/config.ts → window.api.patchConfig()
-  → preload IPC invoke
-    → main/ipc: patchConfig() → main/config/store.ts (JSON + 加密)
-      → broadcastConfig() 广播到所有窗口
-```
+### 配置与密钥
 
-### 文件操作
-```
-渲染进程: services/fileOps.ts → window.api.readFile/writeFile/...
-  → preload IPC invoke
-    → main/services/fs.ts → Node fs 操作工作区目录
-```
+- 正式配置位于 `app.getPath('userData')/config.json`；开发环境在项目内 `.dev-data/`，不能与正式数据混用。
+- 首次启动的 `workspace` 为空，由用户选择目录。切换工作区只更新配置指向，不迁移旧目录文件。
+- Node 默认配置在 `src/shared/defaults.node.ts`；渲染器占位默认值在 `src/shared/defaults.ts`。后者不能引入 `node:*` 或访问 `process`。
+- `getConfigForRenderer()` 只返回掩码 API Key；真实密钥只能通过主进程内部接口读取。保存带 `••••` 的掩码值时必须保留原密钥。
+- `safeStorage` 可用时密钥加密落盘；当前实现不可用或加密失败时会退回原值，不能把它描述为无条件加密。
+- 配置变更可能还需要重注册全局快捷键、重建托盘菜单并广播 `config:changed`，不要只写 JSON。
+
+### 文件与工作区
+
+- 文件系统副作用属于主进程；渲染器通过 `services/fileOps.ts` 调用 `window.api`。
+- 文件树只展示 `.md` 文件并忽略点文件；目录优先、名称按数字感知排序。
+- 删除使用系统回收站。新建、复制和重命名通过追加 ` 2`、` 3` 等避免覆盖同名目标。
+- 文件树每 1.5 秒轮询，同时在渲染器做乐观更新；修复时要同时考虑“立即 UI 状态”和“下一次轮询校正”。
+- 所有文件路径都可能是 Windows 绝对路径。不要用只支持 `/` 的 `split`、前缀判断或字符串替换处理层级；路径安全和工作区越界校验应放在主进程。
+- 重命名/删除文件夹时，同步更新或关闭其下已打开的标签页，并保持当前标签选择有效。
+
+### 标签页、编辑与保存
+
+- `workspace.ts` 中 `path` 是标签唯一键；`savedContent` 表示磁盘版本，`dirtyContent !== null` 表示未保存编辑，显示内容始终取 `dirtyContent ?? savedContent`。
+- 写盘成功后才能 `markClean()`。AI 覆盖内容时必须先 `edit()` 再 `markClean()`，顺序不可颠倒。
+- 自动保存仅对真实文件生效，在最后编辑 1.5 秒后写入；只读标签不可修改。
+- `draft://` 标签只存在内存中，不得传给文件系统 API。当前 `Ctrl/Cmd+S` 只提示用户，尚无 Save As 流程。
+- 关闭脏标签必须保留“保存 / 丢弃 / 取消”语义；窗口关闭还会通过 `beforeunload` 检查未保存内容。
+- CodeMirror 是受控编辑器，但每个标签保持独立实例。修改快捷键、焦点、选择区或右键菜单时，要验证标签切换、重命名输入框和只读预览。
 
 ### AI 调用
-```
-渲染进程: features/useXxx.ts → services/ai.ts → window.api.callAI(req)
-  → preload IPC invoke
-    → main/services/ai.ts → fetch() OpenAI 兼容 API
-      ← SSE 流式: ipcMain → event.sender.send('ai:stream-chunk')
-      ← 非流式: 直接返回 AICallResult
-```
 
-## 开发命令
+- 模型配置统一走 OpenAI 兼容的 `/chat/completions`；文本模型与视觉模型 ID 分开，视觉 ID 为空时可回退到文本模型 ID。
+- 文本优化使用流式请求。`streamId` 关联增量事件、最终事件、invoke 结果和取消请求；结束或异常后必须清理监听器与 `AbortController`。
+- 取消属于正常终止状态，不应作为普通错误展示。流式结果必须防止并发 chunk 覆盖和重复落盘。
+- 图片粘贴、拖放和选择文件共用入口；渲染器先压缩为最长边 1600px 的 JPEG，主进程仍执行 4MB 限制。DeepSeek provider 当前明确拒绝视觉请求。
+- AI 结果写回前重新确认目标标签/选择区，避免异步返回后覆盖用户已切换或继续编辑的内容。
+
+### Electron 生命周期
+
+- 开发环境会重定向 `userData/sessionData`、关闭窗口即退出，并允许 Vite HMR；生产环境启用 CSP，关闭可见窗口通常隐藏到托盘。
+- `electron.vite.config.ts` 固定渲染端口为 `5174` 且 `strictPort: true`。端口被占用时不要让 Electron 误连其他 Vite 页面。
+- 项目为 ESM，但 main/preload 构建必须输出 `.cjs`，对应 `package.json#main` 和 BrowserWindow preload 路径。
+- macOS 应用菜单必须保留标准 Edit roles，否则输入框和编辑器的 Cmd+C/V/X/A 等操作会失效。
+- 保留单实例锁、Windows `AppUserModelId` 的 ready 前设置、外链系统浏览器打开及 `will-navigate` 防护。
+
+## 开发与验证
 
 ```bash
-pnpm install --config.dangerouslyAllowAllBuilds=true  # electron 需要编译原生模块
-pnpm dev                                              # 启动开发（HMR）
-pnpm build:mac                                        # 打包 macOS .dmg
-pnpm build:win                                        # 打包 Windows .exe
-pnpm typecheck                                        # 类型检查
+pnpm install --config.dangerouslyAllowAllBuilds=true
+pnpm dev
+pnpm typecheck
+pnpm build
+pnpm build:win
+pnpm build:mac
 ```
 
-## 几个注意点
+仓库目前没有自动化测试套件，也没有 ESLint/Prettier 脚本。每次修改至少执行：
 
-- **开发模式**下 `userData` 重定向到 `.dev-data/`，避免与正式版配置冲突。
-- **macOS Edit 菜单**必须有标准角色（undo/redo/cut/copy/paste/selectAll），否则 Cmd+C/V 等快捷键在输入框中无效。
-- **工作区**默认是 `~/Documents/EasyPrompt`，可配置。文件变更通过 1.5s 轮询检测（非 chokidar）。
-- **API Key** 存在 config JSON 里但在主进程用 `safeStorage.encryptString()` 加密后才落盘，渲染进程拿到的明文是从主进程解密后返回的。
-- **Draft 标签页**：直接拖拽 .md 文件到编辑器空白区域会创建内存标签页（路径前缀 `draft://`），需手动保存为真实文件。
-- **流式 AI 响应**：通过 `streamId` 关联请求和响应，`ai:stream-chunk` 事件推送增量文本，`done: true` 表示结束。
+1. `pnpm typecheck`。
+2. `git diff --check`。
+3. 涉及 main/preload、构建配置或打包路径时执行 `pnpm build`。
+4. UI/交互修改用 `pnpm dev` 做针对性手工回归；优先覆盖被修改流程及相邻状态（空工作区、真实文件、脏标签、只读、AI 失败/取消）。
+
+完成前检查 diff，确认没有生成文件、调试日志、无关格式化或只更新单一语言。

@@ -26,6 +26,7 @@
     "@codemirror/view": "^6.43.1",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
+    "@lezer/highlight": "1.2.3",
     "codemirror": "^6.0.2",
     "highlight.js": "^11.11.1",
     "i18next": "^23.16.5",
