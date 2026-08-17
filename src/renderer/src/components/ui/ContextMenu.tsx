@@ -143,6 +143,9 @@ export function ContextMenuProvider({ children }: { children: ReactNode }): JSX.
             >
               <button
                 disabled={item.disabled}
+                // Keep the context target focused. Editor commands, especially
+                // Select All, must leave their selection visible after clicking.
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   item.onClick()
                   if (!item.submenu) setMenu(null)
