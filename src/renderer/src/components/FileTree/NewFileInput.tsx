@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '../../store/workspace'
-import { createFile, createFolder } from '../../services/fileOps'
-import { insertNode } from '../../services/treeOps'
+import { useFileTreeActions } from '../../features/useFileTreeActions'
 
 interface Props {
   /** Directory where the new node will be created on commit. */
@@ -41,6 +40,8 @@ export default function NewFileInput({ dir, kind = 'file' }: Props): JSX.Element
     useWorkspaceStore.getState().clearPendingNewFile()
   }, [])
 
+  const { createNode } = useFileTreeActions()
+
   const commit = useCallback(async (): Promise<void> => {
     if (busyRef.current) return
     const name = value.trim()
@@ -51,18 +52,7 @@ export default function NewFileInput({ dir, kind = 'file' }: Props): JSX.Element
     busyRef.current = true
     setError(null)
     try {
-      const path = kind === 'folder' ? await createFolder(dir, name) : await createFile(dir, name)
-      const fileName = path.split(/[\\/]/).pop() ?? ''
-      const state = useWorkspaceStore.getState()
-      if (state.tree) {
-        state.setTree(
-          insertNode(state.tree, dir, {
-            path,
-            name: fileName,
-            kind
-          })
-        )
-      }
+      const { path, name: fileName } = await createNode(dir, name, kind)
       // Only open the new file when the user is still on the input (Enter) or
       // clicked a neutral area (editor / preview). If they clicked a tree-row
       // button, that row's own click handler decides which file opens — don't
@@ -70,7 +60,7 @@ export default function NewFileInput({ dir, kind = 'file' }: Props): JSX.Element
       const el = document.activeElement as HTMLElement | null
       const clickedTreeRow = !!el?.closest('button')
       if (!clickedTreeRow && kind === 'file') {
-        state.openFile(path, fileName, '')
+        useWorkspaceStore.getState().openFile(path, fileName, '')
       }
     } catch (err) {
       // Keep the input open + show the reason (e.g. invalid chars on Windows)
@@ -81,7 +71,7 @@ export default function NewFileInput({ dir, kind = 'file' }: Props): JSX.Element
     }
     clear()
     busyRef.current = false
-  }, [dir, kind, value, clear])
+  }, [dir, kind, value, clear, createNode])
 
   const handleBlur = (): void => {
     if (mountedRef.current) void commit()

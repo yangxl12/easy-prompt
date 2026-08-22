@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '../store/workspace'
+import { useConfigStore } from '../store/config'
 import { optimizePrompt } from '../services/ai'
 import { createFile, writeFile, readFileSync } from '../services/fileOps'
-import { useWorkspaceRoot } from '../services/workspaceRoot'
+import { useWorkspaceRoot } from '../hooks/useWorkspaceRoot'
 
 /**
  * "Optimize prompt" workflow. Given the active tab's content, calls the AI to
@@ -53,7 +54,10 @@ export function useOptimizePrompt(): OptimizeState & {
     if (!original.trim()) return
     setState({ busy: true, error: null, pending: null, streaming: '' })
     try {
-      const { result, abort } = optimizePrompt(original, (delta) => {
+      // Read the config fresh at call time (same rationale as the tab read
+      // above — a stale closure must not optimize with an outdated model).
+      const config = useConfigStore.getState().config
+      const { result, abort } = optimizePrompt(config, original, (delta) => {
         // Functional update so concurrent chunks compose without clobbering.
         setState((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
       })

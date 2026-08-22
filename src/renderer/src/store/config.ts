@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { AppConfig, AppConfigPatch, ThemeMode, Language } from '@shared/types'
 import { createDefaultConfigRenderer } from '@shared/defaults'
+import { resolveCurrentModel } from '../services/ai'
 
 /**
  * Central config store. Hydrated once from main at boot, and kept in sync
@@ -42,10 +43,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     await get().patchConfig({ app: { language } })
   },
 
-  currentModel: () => {
-    const { models, currentModelId } = get().config.ai
-    return models.find((m) => m.id === currentModelId) ?? null
-  },
+  currentModel: () => resolveCurrentModel(get().config),
 
   aiReady: () => {
     const m = get().currentModel()

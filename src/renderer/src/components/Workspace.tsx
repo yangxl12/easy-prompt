@@ -1,42 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '../store/config'
-import { useWorkspaceStore, tabContent, type Tab } from '../store/workspace'
-import { writeFile } from '../services/fileOps'
-import { useWorkspaceRoot } from '../services/workspaceRoot'
-import { optimizePrompt, polishText } from '../services/ai'
+import { useWorkspaceStore, tabContent } from '../store/workspace'
+import { useWorkspaceRoot } from '../hooks/useWorkspaceRoot'
 import TabBar from './EditorPane/TabBar'
 import CodeEditor, { type EditorCommands } from './EditorPane/CodeEditor'
 import SplitPane from './EditorPane/SplitPane'
 import MarkdownPreview from './PreviewPane/MarkdownPreview'
+import EmptyState from './Workspace/EmptyState'
+import StreamingPreview from './Workspace/StreamingPreview'
 import { SparkleIcon, FeatherIcon, ImageIcon, SettingsIcon } from './ui/icons'
 import { Button } from './ui/Button'
 import ChoiceDialog from './ui/ChoiceDialog'
-import { useContextMenu, type MenuItemDef } from './ui/ContextMenu'
 import { useOptimizePrompt } from '../features/useOptimizePrompt'
-import { useImagePaste } from '../features/useImageToPrompt'
-
-/** Path prefix for transient in-memory tabs created by dropping onto the empty state. */
-const DRAFT_PREFIX = 'draft://'
+import { useSaveFlows } from '../features/useSaveFlows'
+import { useTabCloseConfirm } from '../features/useTabCloseConfirm'
+import { useSelectionAi } from '../features/useSelectionAi'
+import { useImagePromptFlow } from '../features/useImagePromptFlow'
+import { useEditorContextMenu } from '../features/useEditorContextMenu'
 
 interface WorkspaceProps {
   onOpenSettings: () => void
 }
 
+/**
+ * Workspace layout and composition. Behavioral flows live in feature hooks:
+ * persistence (`useSaveFlows`), close confirmation (`useTabCloseConfirm`),
+ * AI actions (`useOptimizePrompt`, `useSelectionAi`, `useImagePromptFlow`) and
+ * the editor context menu (`useEditorContextMenu`).
+ */
 export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Element {
   const { t } = useTranslation()
-  const { open: openMenu } = useContextMenu()
   const aiReady = useConfigStore((s) => s.aiReady())
-  const autoSave = useConfigStore((s) => s.config.app.autoSave)
   const optimizeDefaultAction = useConfigStore((s) => s.config.app.optimizeDefaultAction)
   const showOptimizeWholeFile = useConfigStore((s) => s.config.app.showOptimizeWholeFile)
   const showPreview = useConfigStore((s) => s.config.app.showPreview)
   const tabs = useWorkspaceStore((s) => s.tabs)
   const activePath = useWorkspaceStore((s) => s.activePath)
-  const openFile = useWorkspaceStore((s) => s.openFile)
   const pendingRenamePath = useWorkspaceStore((s) => s.pendingRenamePath)
-  const markClean = useWorkspaceStore((s) => s.markClean)
-  const closeTab = useWorkspaceStore((s) => s.closeTab)
   const edit = useWorkspaceStore((s) => s.edit)
   const setActive = useWorkspaceStore((s) => s.setActive)
   const workspaceRoot = useWorkspaceRoot()
@@ -44,11 +45,24 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   const activeTab = tabs.find((tb) => tb.path === activePath) ?? null
   const content = tabContent(activeTab ?? undefined)
   const optimize = useOptimizePrompt()
-  const image = useImagePaste()
+  const { saveTab } = useSaveFlows()
+  const { pendingCloseTab, requestCloseTab, resolveCloseTab } = useTabCloseConfirm()
 
   // Imperative editor commands for each tab, keyed by path. Used by the
   // right-click context menu and to focus the editor on tab switch.
   const commandsMapRef = useRef<Map<string, EditorCommands>>(new Map())
+  const {
+    selectionOptimize,
+    selectionPolish,
+    optimizeSelection,
+    polishSelection,
+    abortSelectionOptimize,
+    abortSelectionPolish
+  } = useSelectionAi(commandsMapRef)
+  const { image, handleImageFile, handleConvertImage, pickImage, fileInputRef } =
+    useImagePromptFlow()
+  const handleContextMenu = useEditorContextMenu(commandsMapRef, { optimizeSelection, pickImage })
+
   // Drag-over state lives here (parent) so the editor can stay a dumb view.
   const [dropActive, setDropActive] = useState(false)
   // Track whether the active editor has a text selection.
@@ -82,13 +96,6 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
     setHasSelection(false)
   }, [activePath])
 
-  const isDraft = activeTab?.path.startsWith(DRAFT_PREFIX) ?? false
-
-  // Auto-save debounce: when autoSave is on, save 1.5s after the last edit.
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const activeTabRef = useRef(activeTab)
-  activeTabRef.current = activeTab
-
   // Auto-resolve optimize when config says overwrite or keep (skip the dialog).
   // Use a ref for resolve so the effect doesn't re-fire on every render just
   // because the `optimize` spread object is a new reference each time.
@@ -100,73 +107,6 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
       void optimizeResolveRef.current(optimizeDefaultAction)
     }
   }, [optimize.pending, optimizeDefaultAction])
-
-  const performAutoSave = useCallback(async (): Promise<void> => {
-    const tab = activeTabRef.current
-    if (!tab || tab.path.startsWith(DRAFT_PREFIX)) return
-    const toWrite = tab.dirtyContent ?? tab.savedContent
-    await writeFile(tab.path, toWrite)
-    useWorkspaceStore.getState().markClean(tab.path)
-  }, [])
-
-  useEffect(() => {
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current)
-      autoSaveTimerRef.current = null
-    }
-    if (autoSave && activeTab && !isDraft && activeTab.dirtyContent !== null) {
-      autoSaveTimerRef.current = setTimeout(() => {
-        void performAutoSave()
-      }, 1500)
-    }
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current)
-      }
-    }
-  }, [autoSave, activeTab?.dirtyContent, activeTab?.path, isDraft, performAutoSave])
-
-  // Pending-close confirmation for unsaved tabs.
-  const [pendingCloseTab, setPendingCloseTab] = useState<Tab | null>(null)
-
-  const requestCloseTab = useCallback((path: string) => {
-    const tab = tabs.find((t) => t.path === path)
-    if (tab && tab.dirtyContent !== null) {
-      setPendingCloseTab(tab)
-    } else {
-      closeTab(path)
-    }
-  }, [tabs, closeTab])
-
-  const resolveCloseTab = useCallback(async (action: 'save' | 'discard' | 'cancel') => {
-    const tab = pendingCloseTab
-    setPendingCloseTab(null)
-    if (!tab) return
-    if (action === 'save') {
-      const toWrite = tab.dirtyContent ?? tab.savedContent
-      await writeFile(tab.path, toWrite)
-      useWorkspaceStore.getState().markClean(tab.path)
-      closeTab(tab.path)
-    } else if (action === 'discard') {
-      closeTab(tab.path)
-    }
-    // 'cancel' does nothing
-  }, [pendingCloseTab, closeTab])
-
-  /** Save a specific tab (used by per-tab editors via Ctrl+S). */
-  const saveTab = useCallback(
-    async (tab: Tab): Promise<void> => {
-      if (tab.readOnly) return
-      if (tab.path.startsWith(DRAFT_PREFIX)) {
-        window.alert(t('editor.draftSaveHint'))
-        return
-      }
-      const toWrite = tab.dirtyContent ?? tab.savedContent
-      await writeFile(tab.path, toWrite)
-      markClean(tab.path)
-    },
-    [t, markClean]
-  )
 
   /** Create a new Markdown file and open it. */
   const handleNewFile = useCallback((): void => {
@@ -191,218 +131,9 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
     setActive(prev.path)
   }, [tabs, activePath, setActive])
 
-  const handleConvertImage = async (): Promise<void> => {
-    if (!activeTab || image.busy) return
-    // Capture the data URL BEFORE convert(): convert() does not clear it, but
-    // capturing up front keeps this handler robust against any future change.
-    const keptDataUrl = image.dataUrl
-    const prompt = await image.convert()
-    // On failure, DO NOT dismiss — keep the banner + error so the user can see
-    // what went wrong and retry. Only clear state on success.
-    if (!prompt) return
-    let next = prompt
-    if (keptDataUrl) {
-      // Inline the image before the generated prompt so the doc stays visual.
-      next = `![pasted-ui.png](${keptDataUrl})\n\n${prompt}`
-    }
-    const updated = content ? `${content}\n\n${next}` : next
-    edit(activeTab.path, updated)
-    image.dismiss()
-  }
-
-  /**
-   * Image ingress shared by paste + drop + file picker. When no tab is open,
-   * dropping creates a fresh draft tab first so the result has somewhere to land.
-   */
-  const handleImageFile = useCallback(
-    (file: File): void => {
-      if (!activeTab) {
-        const path = `${DRAFT_PREFIX}${Date.now()}`
-        openFile(path, t('editor.untitled'), '')
-      }
-      image.onPasteImage(file)
-    },
-    [activeTab, openFile, image, t]
-  )
-
-  /**
-   * Optimize the current editor selection in place (used by the right-click
-   * "optimize selection" item). Streams into the same live-preview bar, then
-   * replaces just the selected range when done.
-   */
-  const [selectionOptimize, setSelectionOptimize] = useState<{
-    busy: boolean
-    streaming: string | null
-    error: string | null
-  }>({ busy: false, streaming: null, error: null })
-  const selAbortRef = useRef<(() => void) | null>(null)
-
-  const optimizeSelection = useCallback(async (): Promise<void> => {
-    if (!activePath || !activeTab) return
-    const cmds = commandsMapRef.current.get(activePath)
-    if (!cmds) return
-    const selectedText = cmds.getSelectionText()
-    if (!selectedText.trim()) return
-    setSelectionOptimize({ busy: true, streaming: '', error: null })
-    try {
-      const { result, abort } = optimizePrompt(selectedText, (delta) => {
-        setSelectionOptimize((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
-      })
-      // Capture abort synchronously so the stop button works immediately.
-      selAbortRef.current = abort
-      const { result: optimized, aborted } = await result
-      if (aborted) {
-        setSelectionOptimize({ busy: false, streaming: null, error: null })
-        return
-      }
-      setSelectionOptimize({ busy: false, streaming: null, error: null })
-      // Splice the optimized text back into the document, replacing the
-      // original selection in place.
-      cmds.replaceSelection(optimized)
-    } catch (err) {
-      setSelectionOptimize({ busy: false, streaming: null, error: t('ai.error', { message: (err as Error).message }) })
-    } finally {
-      selAbortRef.current = null
-    }
-  }, [activeTab, t])
-
-  /**
-   * Polish the current editor selection as prose (articles, notes, journals).
-   * Same in-place replace flow as optimizeSelection, but tuned for everyday
-   * writing instead of prompt crafting.
-   */
-  const [selectionPolish, setSelectionPolish] = useState<{
-    busy: boolean
-    streaming: string | null
-    error: string | null
-  }>({ busy: false, streaming: null, error: null })
-  const polishAbortRef = useRef<(() => void) | null>(null)
-
-  const polishSelection = useCallback(async (): Promise<void> => {
-    if (!activePath || !activeTab) return
-    const cmds = commandsMapRef.current.get(activePath)
-    if (!cmds) return
-    const selectedText = cmds.getSelectionText()
-    if (!selectedText.trim()) return
-    setSelectionPolish({ busy: true, streaming: '', error: null })
-    try {
-      const { result, abort } = polishText(selectedText, (delta) => {
-        setSelectionPolish((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
-      })
-      // Capture abort synchronously so the stop button works immediately.
-      polishAbortRef.current = abort
-      const { result: polished, aborted } = await result
-      if (aborted) {
-        setSelectionPolish({ busy: false, streaming: null, error: null })
-        return
-      }
-      setSelectionPolish({ busy: false, streaming: null, error: null })
-      // Splice the polished text back into the document, replacing the
-      // original selection in place.
-      cmds.replaceSelection(polished)
-    } catch (err) {
-      setSelectionPolish({ busy: false, streaming: null, error: t('ai.error', { message: (err as Error).message }) })
-    } finally {
-      polishAbortRef.current = null
-    }
-  }, [activeTab, t])
-
-  /**
-   * Pick an image: try the system clipboard first (so the common "screenshot
-   * then click the button" flow is one click), and fall back to a native file
-   * picker when the clipboard has no image or read access is denied. Files are
-   * routed through the same `handleImageFile` ingress as paste/drop.
-   */
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const pickImage = useCallback(async (): Promise<void> => {
-    // 1. Try the system clipboard.
-    try {
-      const items = await navigator.clipboard.read()
-      for (const item of items) {
-        const imageType = item.types.find((tp) => tp.startsWith('image/'))
-        if (imageType) {
-          const blob = await item.getType(imageType)
-          handleImageFile(new File([blob], 'pasted.png', { type: imageType }))
-          return
-        }
-      }
-    } catch {
-      // No clipboard image or permission denied — fall through to the picker.
-    }
-    // 2. Fall back to a native file picker. We trigger it from the ref rather
-    // than constructing a fresh <input> each click so we stay uncontrolled.
-    fileInputRef.current?.click()
-  }, [handleImageFile])
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, hasSelection: boolean): void => {
-      const cmds = activePath ? commandsMapRef.current.get(activePath) : undefined
-      const mod = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'
-      const isReadOnly = activeTab?.readOnly ?? false
-      const items: MenuItemDef[] = [
-        {
-          id: 'cut',
-          label: t('editor.cut'),
-          shortcut: `${mod}X`,
-          disabled: !hasSelection || isReadOnly,
-          onClick: () => cmds?.cut()
-        },
-        {
-          id: 'copy',
-          label: t('editor.copy'),
-          shortcut: `${mod}C`,
-          disabled: !hasSelection,
-          onClick: () => cmds?.copy()
-        },
-        {
-          id: 'paste',
-          label: t('editor.paste'),
-          shortcut: `${mod}V`,
-          disabled: isReadOnly,
-          onClick: () => cmds?.paste(),
-          separatorAfter: true
-        },
-        {
-          id: 'paste-image',
-          label: t('editor.pasteImage'),
-          disabled: isReadOnly,
-          onClick: () => void pickImage()
-        },
-        {
-          id: 'optimize-selection',
-          label: t('editor.optimizeSelection'),
-          disabled: !hasSelection || !aiReady || isReadOnly,
-          onClick: () => void optimizeSelection(),
-          separatorAfter: true
-        },
-        {
-          id: 'select-all',
-          label: t('editor.selectAll'),
-          shortcut: `${mod}A`,
-          onClick: () => cmds?.selectAll()
-        },
-        {
-          id: 'undo',
-          label: t('editor.undo'),
-          shortcut: `${mod}Z`,
-          disabled: isReadOnly,
-          onClick: () => cmds?.undo()
-        },
-        {
-          id: 'redo',
-          label: t('editor.redo'),
-          shortcut: `Shift+${mod}Z`,
-          disabled: isReadOnly,
-          onClick: () => cmds?.redo()
-        }
-      ]
-      openMenu(e, items)
-    },
-    [aiReady, activePath, activeTab?.readOnly, openMenu, optimizeSelection, pickImage, t]
-  )
-
   const hasOpenTab = activeTab !== null
-  const busy = optimize.busy || image.busy || selectionOptimize.busy || selectionPolish.busy
+  const busy =
+    optimize.busy || image.busy || selectionOptimize.busy || selectionPolish.busy
   const aiError = optimize.error ?? image.error ?? selectionOptimize.error ?? selectionPolish.error
 
   // Stats for the status bar: line count + char count of the active document.
@@ -490,8 +221,8 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
             size="sm"
             onClick={() => {
               if (optimize.busy) optimize.abort()
-              if (selectionOptimize.busy) selAbortRef.current?.()
-              if (selectionPolish.busy) polishAbortRef.current?.()
+              if (selectionOptimize.busy) abortSelectionOptimize()
+              if (selectionPolish.busy) abortSelectionPolish()
             }}
           >
             {t('ai.stop')}
@@ -568,43 +299,13 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
         </div>
       )}
 
-      {/* Live streaming preview while AI is polishing (whole-doc optimize). */}
-      {optimize.streaming !== null && (
-        <div className="border-b border-border bg-accent-soft/40 px-3 py-2">
-          <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-            {t('ai.streaming')}
-          </div>
-          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-text">
-            {optimize.streaming || '…'}
-          </pre>
-        </div>
-      )}
-
-      {/* Live streaming preview for selection optimization. */}
+      {/* Live streaming previews while AI operations are producing text. */}
+      {optimize.streaming !== null && <StreamingPreview streaming={optimize.streaming} />}
       {selectionOptimize.streaming !== null && (
-        <div className="border-b border-border bg-accent-soft/40 px-3 py-2">
-          <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-            {t('ai.streaming')}
-          </div>
-          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-text">
-            {selectionOptimize.streaming || '…'}
-          </pre>
-        </div>
+        <StreamingPreview streaming={selectionOptimize.streaming} />
       )}
-
-      {/* Live streaming preview for selection polishing. */}
       {selectionPolish.streaming !== null && (
-        <div className="border-b border-border bg-accent-soft/40 px-3 py-2">
-          <div className="mb-1 flex items-center gap-2 text-xs text-text-muted">
-            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-            {t('ai.streaming')}
-          </div>
-          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-text">
-            {selectionPolish.streaming || '…'}
-          </pre>
-        </div>
+        <StreamingPreview streaming={selectionPolish.streaming} />
       )}
 
       {!hasOpenTab ? (
@@ -723,43 +424,5 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
         }}
       />
     </main>
-  )
-}
-
-function EmptyState({ onDropImage }: { onDropImage?: (file: File) => void }): JSX.Element {
-  const { t } = useTranslation()
-  const [dragOver, setDragOver] = useState(false)
-  return (
-    <div
-      className={`flex min-h-0 flex-1 items-center justify-center text-text-muted ${
-        dragOver ? 'bg-accent-soft/20 ring-2 ring-inset ring-accent' : ''
-      }`}
-      onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
-          e.preventDefault()
-          setDragOver(true)
-        }
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault()
-        setDragOver(false)
-        const files = e.dataTransfer.files
-        if (!files || files.length === 0) return
-        for (let i = 0; i < files.length; i++) {
-          if (files[i].type.startsWith('image/')) {
-            onDropImage?.(files[i])
-            return
-          }
-        }
-      }}
-    >
-      <div className="max-w-sm text-center">
-        <div className="mb-3 text-3xl">✦</div>
-        <h2 className="mb-1 text-base font-semibold text-text">{t('app.title')}</h2>
-        <p className="text-sm">{t('tree.empty')}</p>
-        <p className="mt-2 text-xs text-text-muted">{t('ai.pasteImageHint')}</p>
-      </div>
-    </div>
   )
 }

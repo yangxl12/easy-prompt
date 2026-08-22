@@ -8,7 +8,7 @@ import FileTreeView, { FileTreeDragProvider, flattenTree } from './FileTree/File
 import NewFileInput from './FileTree/NewFileInput'
 import { PlusIcon, ChevronLeftIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from './ui/icons'
 import { useContextMenu } from './ui/ContextMenu'
-import { useWorkspaceRoot } from '../services/workspaceRoot'
+import { useWorkspaceRoot } from '../hooks/useWorkspaceRoot'
 
 interface SidebarProps {
   onOpenSettings: () => void

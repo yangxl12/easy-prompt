@@ -12,7 +12,7 @@ import {
 import FileTreeNodeMenu from './FileTreeNodeMenu'
 import NewFileInput from './NewFileInput'
 import { readFileSync } from '../../services/fileOps'
-import { useWorkspaceRoot } from '../../services/workspaceRoot'
+import { useWorkspaceRoot } from '../../hooks/useWorkspaceRoot'
 
 interface FileTreeDragContextValue {
   draggedPath: string | null

@@ -4,14 +4,11 @@ import type { FileNode } from '@shared/types'
 import { useContextMenu, type MenuItemDef } from '../ui/ContextMenu'
 import { useWorkspaceStore } from '../../store/workspace'
 import {
-  renameNode,
-  deleteNode,
-  deleteNodes,
   copyNode,
   showInFolder,
   readFileSync
 } from '../../services/fileOps'
-import { renameNodeInTree, removeNodeFromTree } from '../../services/treeOps'
+import { useFileTreeActions } from '../../features/useFileTreeActions'
 
 interface Props {
   node: FileNode
@@ -31,11 +28,8 @@ interface Props {
  */
 export default function FileTreeNodeMenu({ node, children, isSelected, onCreatedInFolder }: Props): JSX.Element {
   const { t } = useTranslation()
-  const { open } = useContextMenu()
+  const { open: openMenu } = useContextMenu()
   const openFile = useWorkspaceStore((s) => s.openFile)
-  const renameTab = useWorkspaceStore((s) => s.renameTab)
-  const renameTabsUnder = useWorkspaceStore((s) => s.renameTabsUnder)
-  const dropTabsUnder = useWorkspaceStore((s) => s.dropTabsUnder)
   const pendingRenamePath = useWorkspaceStore((s) => s.pendingRenamePath)
   const setPendingRename = useWorkspaceStore((s) => s.setPendingRename)
   const clearPendingRename = useWorkspaceStore((s) => s.clearPendingRename)
@@ -43,6 +37,7 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
   const setSelectedPaths = useWorkspaceStore((s) => s.setSelectedPaths)
   const setLastClickedPath = useWorkspaceStore((s) => s.setLastClickedPath)
   const setMarker = useWorkspaceStore((s) => s.setMarker)
+  const { renameNode, deleteNodes } = useFileTreeActions()
   const [renaming, setRenaming] = useState(false)
 
   const parentDir = node.kind === 'folder' ? node.path : node.path.slice(0, node.path.length - node.name.length)
@@ -88,54 +83,21 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
   }
 
   const handleRename = useCallback(async (newName: string): Promise<void> => {
-    const newPath = await renameNode(node.path, newName)
-    if (node.kind === 'file') {
-      renameTab(node.path, newPath, newName)
-    } else {
-      // Keep every open tab under the renamed folder pointing at valid paths;
-      // otherwise stale tabs would re-create the old path on save.
-      renameTabsUnder(node.path, newPath)
-    }
-    // Optimistic rename: update the in-memory tree immediately.
-    const state = useWorkspaceStore.getState()
-    if (state.tree) {
-      state.setTree(renameNodeInTree(state.tree, node.path, newPath, newName))
-    }
-  }, [node.path, node.kind, renameTab, renameTabsUnder])
+    // Disk rename + open-tab sync + optimistic tree update, via the shared action.
+    await renameNode(node, newName)
+  }, [node, renameNode])
 
   const handleDelete = async (): Promise<void> => {
     if (inMultiSelect) {
       const ok = window.confirm(t('tree.deleteSelectedConfirm', { count: multiPaths.length }))
       if (!ok) return
       await deleteNodes(multiPaths)
-      // Close any open tabs under each deleted path.
-      for (const p of multiPaths) {
-        dropTabsUnder(p)
-      }
       setSelectedPaths([])
       setLastClickedPath(null)
-      // Optimistic remove for each deleted node.
-      const state = useWorkspaceStore.getState()
-      if (state.tree) {
-        let next = state.tree
-        for (const p of multiPaths) {
-          const updated = removeNodeFromTree(next, p)
-          if (updated) next = updated
-        }
-        state.setTree(next)
-      }
     } else {
       const ok = window.confirm(t('tree.deleteConfirm', { name: node.name }))
       if (!ok) return
-      await deleteNode(node.path)
-      // Close any open tabs under this node (file itself, or folder subtree).
-      dropTabsUnder(node.path)
-      // Optimistic remove
-      const state = useWorkspaceStore.getState()
-      if (state.tree) {
-        const updated = removeNodeFromTree(state.tree, node.path)
-        if (updated) state.setTree(updated)
-      }
+      await deleteNodes([node.path])
     }
   }
 
@@ -292,7 +254,7 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
   }
 
   return (
-    <div onContextMenu={(e) => open(e, buildItems())} className="contents">
+    <div onContextMenu={(e) => openMenu(e, buildItems())} className="contents">
       {children}
     </div>
   )

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { imageToPrompt } from '../services/ai'
+import { useConfigStore } from '../store/config'
 
 /**
  * Detects image pastes inside the CodeMirror editor. The editor calls
@@ -89,7 +90,10 @@ export function useImagePaste(): ImageState & {
     setBusy(true)
     setError(null)
     try {
-      const prompt = await imageToPrompt(dataUrl)
+      // Fresh config snapshot — the active model may have changed since the
+      // image was captured.
+      const config = useConfigStore.getState().config
+      const prompt = await imageToPrompt(config, dataUrl)
       return prompt
     } catch (err) {
       setError((err as Error).message)

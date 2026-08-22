@@ -1,14 +1,24 @@
-import type { AICallResult, Language } from '@shared/types'
-import { useConfigStore } from '../store/config'
+import type { AICallResult, AIModelConfig, AppConfig, Language } from '@shared/types'
 import { randomLocalId } from './ids'
 
 /**
- * Renderer-side AI client. Picks the currently-active model and dispatches to
- * the main process (which holds the real API key and performs the HTTP call).
+ * Renderer-side AI client. Takes the app config as an explicit parameter
+ * (dependency injection — this module must not read global stores) and
+ * dispatches to the main process, which holds the real API key and performs
+ * the HTTP call.
  */
 
-function currentModelId(): string {
-  const model = useConfigStore.getState().currentModel()
+/**
+ * Resolve the currently-active model from a config snapshot. Pure function,
+ * shared with the config store so there is exactly one resolution rule.
+ */
+export function resolveCurrentModel(config: AppConfig): AIModelConfig | null {
+  const { models, currentModelId } = config.ai
+  return models.find((m) => m.id === currentModelId) ?? null
+}
+
+function requireModelId(config: AppConfig): string {
+  const model = resolveCurrentModel(config)
   if (!model) throw new Error('No AI model configured')
   return model.id
 }
@@ -47,6 +57,7 @@ function detectLanguageName(text: string, fallback: Language): string {
  * immediately without waiting for the promise to settle.
  */
 function streamText(
+  config: AppConfig,
   systemPrompt: string,
   text: string,
   onDelta?: (delta: string) => void
@@ -84,7 +95,7 @@ function streamText(
   const result = (async (): Promise<{ result: string; aborted: boolean }> => {
     try {
       const res: AICallResult = await window.api.callAI({
-        modelId: currentModelId(),
+        modelId: requireModelId(config),
         task: 'text',
         systemPrompt,
         userText: text,
@@ -119,10 +130,11 @@ function streamText(
  *  2. The instruction "DO NOT translate" is stated as a hard rule, up front.
  */
 export function optimizePrompt(
+  config: AppConfig,
   text: string,
   onDelta?: (delta: string) => void
 ): { result: Promise<{ result: string; aborted: boolean }>; abort: () => void } {
-  const appLang = useConfigStore.getState().config.app.language
+  const appLang = config.app.language
   const outLang = detectLanguageName(text, appLang)
   const systemPrompt = [
     'You are a prompt engineer. Polish the user-provided prompt to make it clearer, more fluent, and better structured.',
@@ -132,7 +144,7 @@ export function optimizePrompt(
     'Keep all code, variable names, identifiers, and URLs unchanged.',
     'Respond with ONLY the improved prompt text, no preamble, no explanation, no code fences.'
   ].join(' ')
-  return streamText(systemPrompt, text, onDelta)
+  return streamText(config, systemPrompt, text, onDelta)
 }
 
 /**
@@ -141,10 +153,11 @@ export function optimizePrompt(
  * elegance — without changing the facts or meaning.
  */
 export function polishText(
+  config: AppConfig,
   text: string,
   onDelta?: (delta: string) => void
 ): { result: Promise<{ result: string; aborted: boolean }>; abort: () => void } {
-  const appLang = useConfigStore.getState().config.app.language
+  const appLang = config.app.language
   const outLang = detectLanguageName(text, appLang)
   const systemPrompt = [
     'You are a skilled copy editor for everyday writing — articles, notes, and journals.',
@@ -155,13 +168,13 @@ export function polishText(
     'Keep names, numbers, dates, code, and URLs unchanged.',
     'Respond with ONLY the polished text, no preamble, no explanation, no code fences.'
   ].join(' ')
-  return streamText(systemPrompt, text, onDelta)
+  return streamText(config, systemPrompt, text, onDelta)
 }
 
 /** Describe a UI image and turn it into a structured prompt. */
-export async function imageToPrompt(dataUrl: string): Promise<string> {
+export async function imageToPrompt(config: AppConfig, dataUrl: string): Promise<string> {
   const res: AICallResult = await window.api.callAI({
-    modelId: currentModelId(),
+    modelId: requireModelId(config),
     task: 'vision',
     systemPrompt:
       'You analyze UI design screenshots and convert them into detailed implementation prompts. Describe layout, components, spacing, colors, typography, and interactions. Respond with a well-structured Markdown prompt that a developer or AI could use to reproduce the UI.',

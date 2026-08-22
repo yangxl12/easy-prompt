@@ -13,7 +13,7 @@ EasyPrompt 是一个本地优先的桌面 Prompt 编辑器。技术栈为 Electr
 - 使用 `pnpm` 和 `package.json` 中已有脚本，不要自行切换包管理器。
 - 不要编辑或提交 `node_modules/`、`out/`、`release/`、`.dev-data/` 等生成内容。
 - 修改界面文案时同步更新 `src/shared/i18n/zh-CN.json` 与 `en-US.json`。
-- 修改 IPC 时必须同步检查：`src/shared/types.ts` -> `src/main/ipc/index.ts` -> `src/preload/index.ts` -> 渲染进程调用方。渲染进程不得直接使用 Node/Electron API。
+- 修改 IPC 时必须同步检查：`src/shared/types.ts` -> `src/main/ipc/`（`register.ts` 注册入口，handler 按域在 `config.ts`/`fs.ts`/`ai.ts`）-> `src/preload/index.ts` -> 渲染进程调用方。渲染进程不得直接使用 Node/Electron API。
 
 ## 快速理解项目
 
@@ -21,7 +21,7 @@ EasyPrompt 是一个本地优先的桌面 Prompt 编辑器。技术栈为 Electr
 
 1. `src/shared/types.ts`：领域类型和 IPC channel 的唯一来源。
 2. `src/preload/index.ts`：渲染进程可用的全部 `window.api` 能力。
-3. `src/main/ipc/index.ts`：跨进程编排、副作用入口和事件推送。
+3. `src/main/ipc/`：跨进程编排、副作用入口和事件推送（`register.ts` 组合 `config.ts`/`fs.ts`/`ai.ts`）。
 4. `src/main/services/fs.ts`、`ai.ts`、`config/store.ts`：文件、AI、配置的真实实现。
 5. `src/renderer/src/store/`：配置和工作区状态模型。
 6. `src/renderer/src/components/Workspace.tsx`、`Sidebar.tsx`：主要交互编排。
@@ -47,15 +47,31 @@ src/main/
   config/store.ts      config.json、缓存、密钥处理、原子写入
   services/fs.ts       Markdown 文件树和 CRUD
   services/ai.ts       OpenAI 兼容请求、SSE 解析
-  ipc/index.ts         所有 IPC handler 与事件广播
+  ipc/register.ts      IPC 注册入口（组合各域）
+  ipc/config.ts        配置 handler 与 config:changed 广播
+  ipc/fs.ts            文件系统 handler 与 1.5s 工作区轮询
+  ipc/ai.ts            AI 调用、流式 chunk 与取消 handler
+  ipc/index.ts         薄 re-export（保持 './ipc' 引用稳定）
 src/preload/index.ts   类型化 contextBridge
 src/shared/            跨进程类型、默认值、模型预设、语言资源
 src/renderer/src/
-  components/          工作区、编辑器、文件树、设置、预览和通用 UI
-  features/            完整 Prompt 优化、图片转 Prompt 工作流
-  services/            window.api 封装、Markdown、树操作
-  store/               Zustand 配置与标签页状态
+  components/          工作区、编辑器、文件树、设置、预览和通用 UI（布局编排）
+  features/            业务编排 hooks：Prompt 优化、图片转 Prompt、保存流、
+                       关闭确认、选区 AI、文件树变更（useFileTreeActions）
+  hooks/               可读取 store 的通用 hooks（useWorkspaceRoot）
+  services/            纯函数层：window.api 封装、Markdown、树操作、drafts、
+                       localPrefs、AI 客户端（config 由调用方注入）
+  store/               Zustand：config + workspace（tabs/fileTree 切片组合）
 ```
+
+### 渲染层依赖方向（防回退规则）
+
+依赖必须单向：`components → features/hooks → services / store → window.api`。
+
+- `services/` 是纯函数层，**禁止 import 任何 store**；需要的依赖（如 AI config）一律由调用方显式传参。
+- `features/` 与 `hooks/` 是业务编排层，可以读写 store 与调用 services。
+- `store/tabs.ts`（标签状态机）与 `store/fileTree.ts`（树 + 持久化 UI 偏好）是独立切片，互不写对方的字段；`store/workspace.ts` 只做切片组合与 re-export。
+- 文件树的创建/重命名/删除（磁盘操作 + 标签同步 + 乐观树更新）统一走 `features/useFileTreeActions.ts`，不要在组件里重新内联这套编排。
 
 ## 必须保持的行为契约
 
