@@ -3,13 +3,13 @@ import path from 'node:path'
 import { IPC } from '@shared/types'
 import { getConfigInternal } from '../config/store'
 import * as fsService from '../services/fs'
-import { searchWorkspace, cancelSearch } from '../services/search'
+import { searchWorkspace, cancelSearch, replaceMatches } from '../services/search'
 import {
   assertString,
   assertStringArray,
   resolveWorkspacePath
 } from '../services/workspacePath'
-import type { SearchOptions } from '@shared/types'
+import type { ReplaceTarget, SearchOptions } from '@shared/types'
 
 const MAX_PATH_LEN = 4096
 const MAX_CONTENT_CHARS = 16 * 1024 * 1024
@@ -131,6 +131,30 @@ export function registerFsIpc(): void {
   ipcMain.handle(IPC.FS_SEARCH_CANCEL, async (_e, searchId: unknown) => {
     cancelSearch(assertString(searchId, 200, 'search id'))
     return true
+  })
+
+  // Replace matches across the workspace. `targets` restricts to specific hits;
+  // when omitted, every match of the query is replaced.
+  ipcMain.handle(IPC.FS_REPLACE, async (_e, req: unknown) => {
+    const root = await workspace()
+    const body = (req ?? {}) as SearchOptions & {
+      replacement?: unknown
+      targets?: unknown
+    }
+    const targets = Array.isArray(body.targets)
+      ? (body.targets as ReplaceTarget[])
+      : undefined
+    return replaceMatches(
+      root,
+      {
+        query: assertString(body.query, 500, 'query'),
+        caseSensitive: body.caseSensitive === true,
+        wholeWord: body.wholeWord === true,
+        useRegex: body.useRegex === true
+      },
+      assertString(body.replacement, 5000, 'replacement'),
+      targets
+    )
   })
 
   // Watch the workspace and push change events back to the renderer.

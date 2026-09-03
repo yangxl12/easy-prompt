@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { SearchFileResult, SearchMatch } from '@shared/types'
+import type { ReplaceTarget, SearchFileResult, SearchMatch } from '@shared/types'
 import { useGlobalSearch } from '../features/useGlobalSearch'
 import { useWorkspaceRoot } from '../hooks/useWorkspaceRoot'
-import { splitMatchSegments } from '../services/search'
+import { replaceMatches, splitMatchSegments } from '../services/search'
+import { readFileSync } from '../services/fileOps'
+import { useWorkspaceStore } from '../store/workspace'
 import { relativeDirFrom } from '../services/pathUtils'
 import { ChevronDownIcon, CloseIcon, FileIcon, SearchIcon } from './ui/icons'
 
@@ -24,13 +26,20 @@ interface FlatMatch {
  * Keyboard nav mirrors VS Code's search: ↑/↓ move the focused hit, Enter opens
  * it, and F3 (Shift+F3) opens the next (previous) one. The focused row auto-
  * scrolls into view so a long result set never strands the caret.
+ *
+ * An optional replace mode mirrors VS Code too: expand the "替换" row, type a
+ * replacement, then replace a single hit or every hit at once.
  */
 export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): JSX.Element {
   const { t } = useTranslation()
   const root = useWorkspaceRoot()
-  const { query, setQuery, options, toggleOption, result, searching, error, openMatch, clear } =
+  const { query, setQuery, options, toggleOption, result, searching, error, openMatch, clear, refresh } =
     useGlobalSearch()
   const [collapsedPaths, setCollapsedPaths] = useState<Record<string, boolean>>({})
+  const [replaceMode, setReplaceMode] = useState(false)
+  const [replaceValue, setReplaceValue] = useState('')
+  const [replacing, setReplacing] = useState(false)
+  const [replaceMsg, setReplaceMsg] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const focusedRef = useRef<HTMLButtonElement>(null)
   // Index of the currently focused hit within the *visible* (non-collapsed) rows.
@@ -70,6 +79,11 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
   useEffect(() => {
     setFocusIndex(0)
   }, [result])
+
+  // Clear the transient replace status whenever a fresh query runs.
+  useEffect(() => {
+    setReplaceMsg(null)
+  }, [query])
 
   // Keep the focused row in view as the user arrows through results.
   useEffect(() => {
@@ -112,6 +126,43 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
     }
   }
 
+  /** Replace either the given hits or (when omitted) every match in the query. */
+  const doReplace = async (targets?: ReplaceTarget[]): Promise<void> => {
+    if (!result || replacing) return
+    setReplacing(true)
+    try {
+      const res = await replaceMatches({
+        query: query.trim(),
+        caseSensitive: options.caseSensitive,
+        wholeWord: options.wholeWord,
+        useRegex: options.useRegex,
+        replacement: replaceValue,
+        targets
+      })
+      // Reload any open tab whose backing file just changed on disk.
+      const store = useWorkspaceStore.getState()
+      for (const p of res.paths) {
+        if (!store.tabs.some((tab) => tab.path === p)) continue
+        try {
+          const content = await readFileSync(p)
+          store.setSaved(p, content)
+        } catch {
+          // Tab stays as-is if the reload fails; the disk already holds the new text.
+        }
+      }
+      refresh()
+      setReplaceMsg(
+        res.replaced > 0
+          ? t('globalSearch.replaced', { count: res.replaced, files: res.files })
+          : t('globalSearch.noResults')
+      )
+    } catch {
+      setReplaceMsg(t('globalSearch.failed'))
+    } finally {
+      setReplacing(false)
+    }
+  }
+
   const toggleFile = (path: string): void => {
     setCollapsedPaths((prev) => ({ ...prev, [path]: !prev[path] }))
   }
@@ -120,10 +171,10 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
 
   return (
     <section
-      className="flex max-h-[45vh] min-h-0 shrink-0 flex-col border-b border-border bg-bg-surface"
+      className="flex max-h-[55vh] min-h-0 shrink-0 flex-col border-b border-border bg-bg-surface"
       onKeyDown={handleSectionKeyDown}
     >
-      {/* Input row */}
+      {/* Search input row */}
       <div className="flex items-center gap-2 px-3 py-2">
         <div className="relative flex min-w-0 flex-1 items-center">
           <span className="pointer-events-none absolute left-2 text-text-muted">
@@ -167,6 +218,17 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
             active={options.useRegex}
             onClick={() => toggleOption('useRegex')}
           />
+          <button
+            onClick={() => setReplaceMode((v) => !v)}
+            title={t('globalSearch.replaceToggle')}
+            className={`rounded border px-1.5 py-0.5 font-mono text-[11px] transition-colors ${
+              replaceMode
+                ? 'border-accent bg-accent-soft text-text'
+                : 'border-border text-text-muted hover:bg-bg-subtle hover:text-text'
+            }`}
+          >
+            {t('globalSearch.replaceToggle')}
+          </button>
         </div>
 
         {searching && <span className="text-xs text-text-muted">{t('globalSearch.searching')}</span>}
@@ -188,8 +250,38 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
         </button>
       </div>
 
-      {/* Navigation hint */}
-      {!error && <div className="px-3 pb-1 text-[11px] text-text-muted">{t('globalSearch.navHint')}</div>}
+      {/* Replace row */}
+      {replaceMode && (
+        <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+          <div className="relative flex min-w-0 flex-1 items-center">
+            <span className="pointer-events-none absolute left-2 text-text-muted">
+              <SearchIcon width={14} height={14} className="rotate-90" />
+            </span>
+            <input
+              value={replaceValue}
+              onChange={(e) => setReplaceValue(e.target.value)}
+              placeholder={t('globalSearch.replacePlaceholder')}
+              spellCheck={false}
+              className="w-full rounded-md border border-border bg-bg-base py-1.5 pl-8 pr-3 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
+            />
+          </div>
+          <button
+            onClick={() => void doReplace()}
+            disabled={replacing || !query.trim()}
+            className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity disabled:opacity-50"
+          >
+            {t('globalSearch.replaceAll')}
+          </button>
+        </div>
+      )}
+
+      {/* Navigation hint + transient replace status */}
+      {!error && (
+        <div className="flex items-center justify-between px-3 pb-1 text-[11px] text-text-muted">
+          <span>{t('globalSearch.navHint')}</span>
+          {replaceMsg && <span className="text-accent">{replaceMsg}</span>}
+        </div>
+      )}
 
       {/* Result list */}
       <div className="min-h-0 flex-1 overflow-auto pb-1">
@@ -233,37 +325,57 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
                   const flatIndex = matchIndexMap.get(`${file.path}::${index}`) ?? -1
                   const isFocused = flatIndex === focusIndex && flatIndex >= 0
                   return (
-                    <button
+                    <div
                       key={`${match.line}:${match.column}:${index}`}
-                      ref={isFocused ? focusedRef : undefined}
-                      onClick={() => {
-                        if (flatIndex >= 0) setFocusIndex(flatIndex)
-                        openMatch(file, match)
-                      }}
-                      title={t('globalSearch.openMatch')}
-                      className={`flex w-full items-baseline gap-2 px-3 py-[3px] pl-8 text-left text-xs ${
+                      className={`flex w-full items-baseline gap-2 pl-8 pr-2 text-left text-xs ${
                         isFocused ? 'bg-accent-soft' : 'hover:bg-bg-subtle'
                       }`}
                     >
-                      <span className="w-12 shrink-0 text-right font-mono text-[11px] text-text-muted">
-                        {match.line}:{match.column + 1}
-                      </span>
-                      <span className="truncate font-mono text-text">
-                        {splitMatchSegments(match.lineText, match.column, match.length).map(
-                          (segment, i) =>
-                            segment.hit ? (
-                              <mark
-                                key={i}
-                                className="rounded-sm bg-accent px-0.5 font-semibold text-text"
-                              >
-                                {segment.text}
-                              </mark>
-                            ) : (
-                              <span key={i}>{segment.text}</span>
-                            )
-                        )}
-                      </span>
-                    </button>
+                      <button
+                        ref={isFocused ? focusedRef : undefined}
+                        onClick={() => {
+                          if (flatIndex >= 0) setFocusIndex(flatIndex)
+                          openMatch(file, match)
+                        }}
+                        title={t('globalSearch.openMatch')}
+                        className="flex min-w-0 flex-1 items-baseline gap-2 py-[3px] text-left"
+                      >
+                        <span className="w-12 shrink-0 text-right font-mono text-[11px] text-text-muted">
+                          {match.line}:{match.column + 1}
+                        </span>
+                        <span className="truncate font-mono text-text">
+                          {splitMatchSegments(match.lineText, match.column, match.length).map(
+                            (segment, i) =>
+                              segment.hit ? (
+                                <mark
+                                  key={i}
+                                  className="rounded-sm bg-accent px-0.5 font-semibold text-text"
+                                >
+                                  {segment.text}
+                                </mark>
+                              ) : (
+                                <span key={i}>{segment.text}</span>
+                              )
+                          )}
+                        </span>
+                      </button>
+
+                      {replaceMode && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void doReplace([
+                              { path: file.path, line: match.line, column: match.column, length: match.length }
+                            ])
+                          }}
+                          disabled={replacing}
+                          title={t('globalSearch.replaceOne')}
+                          className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-text-muted hover:bg-bg-base hover:text-text disabled:opacity-50"
+                        >
+                          {t('globalSearch.replaceOne')}
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
             </div>

@@ -183,7 +183,12 @@
     "failed": "Search failed, please retry",
     "truncated": "Too many results — truncated ({{scanned}} files scanned)",
     "openMatch": "Open and jump to this match",
-    "navHint": "↑↓ to move · Enter to open · F3 next"
+    "navHint": "↑↓ to move · Enter to open · F3 next",
+    "replaceToggle": "Replace",
+    "replacePlaceholder": "Replace with…",
+    "replaceOne": "Replace",
+    "replaceAll": "Replace All",
+    "replaced": "Replaced {{count}} matches in {{files}} files"
   },
   "search": {
     "find": "Find",

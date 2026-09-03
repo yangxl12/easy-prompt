@@ -8,7 +8,9 @@ import {
   type AIStreamChunk,
   type FileNode,
   type SearchOptions,
-  type SearchResult
+  type SearchResult,
+  type ReplaceTarget,
+  type ReplaceResult
 } from '@shared/types'
 
 /**
@@ -74,6 +76,17 @@ const api = {
   /** Ask main to abandon an in-flight search (fire-and-forget). */
   cancelSearch: (searchId: string): Promise<void> =>
     ipcRenderer.invoke(IPC.FS_SEARCH_CANCEL, searchId),
+  /**
+   * Replace matches in the workspace. Pass `targets` to replace specific hits, or
+   * omit it to replace every match of the query. Returns the count and the files
+   * that were written.
+   */
+  replaceMatches: (
+    payload: SearchOptions & {
+      replacement: string
+      targets?: ReplaceTarget[]
+    }
+  ): Promise<ReplaceResult> => ipcRenderer.invoke(IPC.FS_REPLACE, payload),
 
   /** Start watching the workspace; cb fires with the latest tree on changes. */
   watchWorkspace: (cb: FileWatcherCallbacks['onTree']): (() => void) => {

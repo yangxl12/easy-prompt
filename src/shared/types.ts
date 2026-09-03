@@ -137,6 +137,28 @@ export interface SearchResult {
   cancelled: boolean
 }
 
+/** A single occurrence to replace, located the same way matches are reported. */
+export interface ReplaceTarget {
+  /** Absolute path of the file. */
+  path: string
+  /** 1-based line number (matches `SearchMatch.line`). */
+  line: number
+  /** 0-based column within the line (matches `SearchMatch.column`). */
+  column: number
+  /** Length of the matched text in code units. */
+  length: number
+}
+
+/** Outcome of a replace operation, used to refresh the UI. */
+export interface ReplaceResult {
+  /** Total occurrences replaced across all files. */
+  replaced: number
+  /** Number of files that changed. */
+  files: number
+  /** Absolute paths that were written (for reloading open tabs). */
+  paths: string[]
+}
+
 /* ---------- IPC contracts ---------- */
 
 /** AI task discriminator. Vision uses image_url content, text is pure chat. */
@@ -206,6 +228,7 @@ export const IPC = {
   FS_WATCH_STOP: 'fs:watch-stop',
   FS_SEARCH: 'fs:search',
   FS_SEARCH_CANCEL: 'fs:search-cancel',
+  FS_REPLACE: 'fs:replace',
   // ai
   AI_CALL: 'ai:call',
   AI_TEST: 'ai:test',

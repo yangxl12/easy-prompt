@@ -37,6 +37,7 @@ export function useGlobalSearch(): {
   error: SearchErrorKind | null
   openMatch: (file: SearchFileResult, match: SearchMatch) => void
   clear: () => void
+  refresh: () => void
 } {
   const root = useWorkspaceRoot()
   const [query, setQuery] = useState('')
@@ -46,6 +47,8 @@ export function useGlobalSearch(): {
   const [result, setResult] = useState<SearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<SearchErrorKind | null>(null)
+  // Bumped to force a re-run without changing the query (e.g. after a replace).
+  const [refreshNonce, setRefreshNonce] = useState(0)
 
   // Newest issued search id — responses that don't match are stale.
   const latestIdRef = useRef('')
@@ -116,7 +119,7 @@ export function useGlobalSearch(): {
       }
       void cancelSearch(searchId)
     }
-  }, [query, caseSensitive, wholeWord, useRegex, root])
+  }, [query, caseSensitive, wholeWord, useRegex, root, refreshNonce])
 
   const toggleOption = useCallback((key: keyof GlobalSearchOptions) => {
     if (key === 'caseSensitive') setCaseSensitive((v) => !v)
@@ -159,6 +162,9 @@ export function useGlobalSearch(): {
     setError(null)
   }, [])
 
+  /** Re-run the current search (used after a replace changes files on disk). */
+  const refresh = useCallback(() => setRefreshNonce((n) => n + 1), [])
+
   return {
     query,
     setQuery,
@@ -168,6 +174,7 @@ export function useGlobalSearch(): {
     searching,
     error,
     openMatch,
-    clear
+    clear,
+    refresh
   }
 }

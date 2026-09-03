@@ -1,6 +1,13 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { SearchFileResult, SearchMatch, SearchOptions, SearchResult } from '@shared/types'
+import type {
+  ReplaceResult,
+  ReplaceTarget,
+  SearchFileResult,
+  SearchMatch,
+  SearchOptions,
+  SearchResult
+} from '@shared/types'
 
 /**
  * Workspace-wide content search over Markdown files.
@@ -190,4 +197,101 @@ export async function searchWorkspace(
 
   files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }))
   return { searchId, files, totalMatches, scannedFiles, truncated, cancelled }
+}
+
+/** Offsets (in code units) where each 1-based line begins in `text`. */
+function lineStartOffsets(text: string): number[] {
+  const re = /\r\n|\n|\r/g
+  const starts = [0]
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    starts.push(m.index + m[0].length)
+  }
+  return starts
+}
+
+/**
+ * Apply a set of replacements to `content`. Targets are absolute (path-agnostic)
+ * plus their `line/column/length`; we map them to code-unit offsets via the line
+ * starts so CRLF/LF never shifts a hit. Edits are applied high-to-low so earlier
+ * offsets stay valid after each splice.
+ */
+function applyTargets(content: string, targets: ReplaceTarget[], replacement: string): string {
+  if (targets.length === 0) return content
+  const starts = lineStartOffsets(content)
+  const edits = targets
+    .map((t) => {
+      const lineStart = starts[t.line - 1]
+      if (lineStart === undefined) return null
+      const start = lineStart + t.column
+      const end = start + t.length
+      if (start < 0 || end > content.length) return null
+      return { start, end }
+    })
+    .filter((e): e is { start: number; end: number } => e !== null)
+    .sort((a, b) => b.start - a.start)
+  if (edits.length === 0) return content
+  let out = content
+  for (const e of edits) {
+    out = out.slice(0, e.start) + replacement + out.slice(e.end)
+  }
+  return out
+}
+
+/**
+ * Replace matches across the workspace. With `targets` provided, only those
+ * occurrences are touched (used by per-match "replace"); without it, every match
+ * of the query is replaced (used by "replace all"). Returns the count and the
+ * list of files written so the renderer can reload any open tabs.
+ */
+export async function replaceMatches(
+  root: string,
+  options: SearchOptions,
+  replacement: string,
+  targets?: ReplaceTarget[]
+): Promise<ReplaceResult> {
+  const grouped = new Map<string, ReplaceTarget[]>()
+  if (targets && targets.length > 0) {
+    for (const t of targets) {
+      const list = grouped.get(t.path)
+      if (list) list.push(t)
+      else grouped.set(t.path, [t])
+    }
+  } else {
+    const scan = await searchWorkspace(root, options, 'replace-scan')
+    for (const file of scan.files) {
+      grouped.set(
+        file.path,
+        file.matches.map((m) => ({
+          path: file.path,
+          line: m.line,
+          column: m.column,
+          length: m.length
+        }))
+      )
+    }
+  }
+
+  let replaced = 0
+  let files = 0
+  const paths: string[] = []
+  for (const [filePath, list] of grouped) {
+    let content: string
+    try {
+      content = await fs.readFile(filePath, 'utf-8')
+    } catch {
+      continue // unreadable / deleted mid-operation
+    }
+    const next = applyTargets(content, list, replacement)
+    if (next === content) continue
+    try {
+      await fs.writeFile(filePath, next, 'utf-8')
+    } catch {
+      continue
+    }
+    replaced += list.length
+    files += 1
+    paths.push(filePath)
+  }
+  return { replaced, files, paths }
 }

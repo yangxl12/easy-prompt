@@ -183,7 +183,12 @@
     "failed": "搜索失败，请重试",
     "truncated": "结果过多，已截断（扫描 {{scanned}} 个文档）",
     "openMatch": "打开并定位到该匹配",
-    "navHint": "↑↓ 切换结果 · Enter 打开 · F3 下一个"
+    "navHint": "↑↓ 切换结果 · Enter 打开 · F3 下一个",
+    "replaceToggle": "替换",
+    "replacePlaceholder": "替换为…",
+    "replaceOne": "替换此项",
+    "replaceAll": "全部替换",
+    "replaced": "已替换 {{count}} 处，涉及 {{files}} 个文档"
   },
   "search": {
     "find": "查找",

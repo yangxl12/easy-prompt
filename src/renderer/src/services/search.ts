@@ -4,7 +4,7 @@
  * feature hook owns state and passes everything in.
  */
 
-import type { SearchOptions, SearchResult } from '@shared/types'
+import type { ReplaceResult, ReplaceTarget, SearchOptions, SearchResult } from '@shared/types'
 
 /** Run a workspace search. `searchId` echoes back so stale runs can be dropped. */
 export function searchWorkspace(
@@ -16,6 +16,13 @@ export function searchWorkspace(
 /** Tell main to abandon an in-flight search (safe to call for unknown ids). */
 export function cancelSearch(searchId: string): Promise<void> {
   return window.api.cancelSearch(searchId)
+}
+
+/** Replace matches in the workspace. Omit `targets` to replace them all. */
+export function replaceMatches(
+  options: SearchOptions & { replacement: string; targets?: ReplaceTarget[] }
+): Promise<ReplaceResult> {
+  return window.api.replaceMatches(options)
 }
 
 /** A slice of a result line: either plain text or a highlighted match. */
