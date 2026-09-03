@@ -11,10 +11,19 @@ interface GlobalSearchPanelProps {
   onClose: () => void
 }
 
+interface FlatMatch {
+  file: SearchFileResult
+  match: SearchMatch
+}
+
 /**
  * Workspace-wide search, docked under the title bar (VS Code style): one input
  * plus match options on top, a file-grouped result list below. Clicking a hit
  * opens the note and selects the matched range in the editor.
+ *
+ * Keyboard nav mirrors VS Code's search: ↑/↓ move the focused hit, Enter opens
+ * it, and F3 (Shift+F3) opens the next (previous) one. The focused row auto-
+ * scrolls into view so a long result set never strands the caret.
  */
 export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): JSX.Element {
   const { t } = useTranslation()
@@ -23,6 +32,9 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
     useGlobalSearch()
   const [collapsedPaths, setCollapsedPaths] = useState<Record<string, boolean>>({})
   const inputRef = useRef<HTMLInputElement>(null)
+  const focusedRef = useRef<HTMLButtonElement>(null)
+  // Index of the currently focused hit within the *visible* (non-collapsed) rows.
+  const [focusIndex, setFocusIndex] = useState(0)
 
   // Focus the field as soon as the panel opens — searching is the only thing
   // the user wants to do here.
@@ -31,19 +43,72 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
     inputRef.current?.select()
   }, [])
 
-  // Enter jumps to the first hit; Escape dismisses the panel.
-  const firstMatch = useMemo<{ file: SearchFileResult; match: SearchMatch } | null>(() => {
-    const file = result?.files[0]
-    if (!file || file.matches.length === 0) return null
-    return { file, match: file.matches[0] }
+  // Every match, in display order, only counting rows that are actually shown
+  // (a collapsed file contributes none). Used for both navigation and indexing.
+  const visibleMatches = useMemo<FlatMatch[]>(() => {
+    const list: FlatMatch[] = []
+    if (!result) return list
+    for (const file of result.files) {
+      if (collapsedPaths[file.path]) continue
+      for (const match of file.matches) list.push({ file, match })
+    }
+    return list
+  }, [result, collapsedPaths])
+
+  // Map "file path :: match index within file" → position in the visible list.
+  const matchIndexMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (let i = 0; i < visibleMatches.length; i++) {
+      const { file, match } = visibleMatches[i]
+      const pos = file.matches.indexOf(match)
+      map.set(`${file.path}::${pos}`, i)
+    }
+    return map
+  }, [visibleMatches])
+
+  // Any new result set starts focus at the top.
+  useEffect(() => {
+    setFocusIndex(0)
   }, [result])
 
-  // Escape is handled by the section-level handler (keydown bubbles up from
-  // here), so only Enter needs special-casing in the field.
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter' && firstMatch) {
+  // Keep the focused row in view as the user arrows through results.
+  useEffect(() => {
+    focusedRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [focusIndex])
+
+  const visibleCount = visibleMatches.length
+
+  const goTo = (next: number): void => {
+    if (visibleCount === 0) return
+    setFocusIndex(Math.max(0, Math.min(next, visibleCount - 1)))
+  }
+
+  const openAt = (index: number): void => {
+    const item = visibleMatches[index]
+    if (item) openMatch(item.file, item.match)
+  }
+
+  const handleSectionKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
+    if (e.key === 'Escape') {
       e.preventDefault()
-      openMatch(firstMatch.file, firstMatch.match)
+      onClose()
+      return
+    }
+    if (visibleCount === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      goTo(focusIndex + 1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      goTo(focusIndex - 1)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      openAt(focusIndex)
+    } else if (e.key === 'F3') {
+      e.preventDefault()
+      const target = Math.max(0, Math.min(e.shiftKey ? focusIndex - 1 : focusIndex + 1, visibleCount - 1))
+      setFocusIndex(target)
+      openAt(target)
     }
   }
 
@@ -56,12 +121,7 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
   return (
     <section
       className="flex max-h-[45vh] min-h-0 shrink-0 flex-col border-b border-border bg-bg-surface"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          onClose()
-        }
-      }}
+      onKeyDown={handleSectionKeyDown}
     >
       {/* Input row */}
       <div className="flex items-center gap-2 px-3 py-2">
@@ -73,7 +133,6 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleInputKeyDown}
             placeholder={t('globalSearch.placeholder')}
             spellCheck={false}
             className="w-full rounded-md border border-border bg-bg-base py-1.5 pl-8 pr-8 text-sm text-text placeholder:text-text-muted focus:border-accent focus:outline-none"
@@ -129,6 +188,9 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
         </button>
       </div>
 
+      {/* Navigation hint */}
+      {!error && <div className="px-3 pb-1 text-[11px] text-text-muted">{t('globalSearch.navHint')}</div>}
+
       {/* Result list */}
       <div className="min-h-0 flex-1 overflow-auto pb-1">
         {error === 'invalidRegex' && <PanelMessage text={t('globalSearch.invalidRegex')} />}
@@ -167,33 +229,43 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
               </button>
 
               {!collapsed &&
-                file.matches.map((match, index) => (
-                  <button
-                    key={`${match.line}:${match.column}:${index}`}
-                    onClick={() => openMatch(file, match)}
-                    title={t('globalSearch.openMatch')}
-                    className="flex w-full items-baseline gap-2 px-3 py-[3px] pl-8 text-left text-xs hover:bg-bg-subtle"
-                  >
-                    <span className="w-12 shrink-0 text-right font-mono text-[11px] text-text-muted">
-                      {match.line}:{match.column + 1}
-                    </span>
-                    <span className="truncate font-mono text-text">
-                      {splitMatchSegments(match.lineText, match.column, match.length).map(
-                        (segment, i) =>
-                          segment.hit ? (
-                            <mark
-                              key={i}
-                              className="rounded-sm bg-accent-soft px-0.5 font-semibold text-text"
-                            >
-                              {segment.text}
-                            </mark>
-                          ) : (
-                            <span key={i}>{segment.text}</span>
-                          )
-                      )}
-                    </span>
-                  </button>
-                ))}
+                file.matches.map((match, index) => {
+                  const flatIndex = matchIndexMap.get(`${file.path}::${index}`) ?? -1
+                  const isFocused = flatIndex === focusIndex && flatIndex >= 0
+                  return (
+                    <button
+                      key={`${match.line}:${match.column}:${index}`}
+                      ref={isFocused ? focusedRef : undefined}
+                      onClick={() => {
+                        if (flatIndex >= 0) setFocusIndex(flatIndex)
+                        openMatch(file, match)
+                      }}
+                      title={t('globalSearch.openMatch')}
+                      className={`flex w-full items-baseline gap-2 px-3 py-[3px] pl-8 text-left text-xs ${
+                        isFocused ? 'bg-accent-soft' : 'hover:bg-bg-subtle'
+                      }`}
+                    >
+                      <span className="w-12 shrink-0 text-right font-mono text-[11px] text-text-muted">
+                        {match.line}:{match.column + 1}
+                      </span>
+                      <span className="truncate font-mono text-text">
+                        {splitMatchSegments(match.lineText, match.column, match.length).map(
+                          (segment, i) =>
+                            segment.hit ? (
+                              <mark
+                                key={i}
+                                className="rounded-sm bg-accent px-0.5 font-semibold text-text"
+                              >
+                                {segment.text}
+                              </mark>
+                            ) : (
+                              <span key={i}>{segment.text}</span>
+                            )
+                        )}
+                      </span>
+                    </button>
+                  )
+                })}
             </div>
           )
         })}

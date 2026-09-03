@@ -182,7 +182,8 @@
     "invalidRegex": "正则表达式无效",
     "failed": "搜索失败，请重试",
     "truncated": "结果过多，已截断（扫描 {{scanned}} 个文档）",
-    "openMatch": "打开并定位到该匹配"
+    "openMatch": "打开并定位到该匹配",
+    "navHint": "↑↓ 切换结果 · Enter 打开 · F3 下一个"
   },
   "search": {
     "find": "查找",

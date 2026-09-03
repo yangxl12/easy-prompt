@@ -182,7 +182,8 @@
     "invalidRegex": "Invalid regular expression",
     "failed": "Search failed, please retry",
     "truncated": "Too many results — truncated ({{scanned}} files scanned)",
-    "openMatch": "Open and jump to this match"
+    "openMatch": "Open and jump to this match",
+    "navHint": "↑↓ to move · Enter to open · F3 next"
   },
   "search": {
     "find": "Find",
