@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore, resolveTheme } from './store/config'
 import { useWorkspaceStore } from './store/workspace'
@@ -14,6 +14,9 @@ export default function App(): JSX.Element {
   const { config, loaded, setConfig } = useConfigStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [searchPos, setSearchPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  // Offset captured at drag start so the panel doesn't jump to the cursor.
+  const dragOffset = useRef<{ dx: number; dy: number } | null>(null)
   const { i18n } = useTranslation()
 
   // Bootstrap: load config from main, init i18n, subscribe to config changes.
@@ -76,11 +79,48 @@ export default function App(): JSX.Element {
     const handler = (e: KeyboardEvent): void => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
         e.preventDefault()
-        setSearchOpen((open) => !open)
+        toggleSearch()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Toggle the search panel; center it the first time it opens (subsequent
+  // opens keep the last dragged position).
+  const toggleSearch = (): void => {
+    if (!searchOpen) {
+      setSearchPos((p) =>
+        p.x === 0 && p.y === 0
+          ? { x: Math.max(16, Math.round((window.innerWidth - 640) / 2)), y: 72 }
+          : p
+      )
+    }
+    setSearchOpen((open) => !open)
+  }
+
+  // Drag the floating search panel by its grip handle. Position is clamped to the
+  // viewport so the panel can't be lost off-screen.
+  const onDragHandleMouseDown = (e: React.MouseEvent): void => {
+    dragOffset.current = { dx: e.clientX - searchPos.x, dy: e.clientY - searchPos.y }
+  }
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      if (!dragOffset.current) return
+      const x = Math.max(8, Math.min(e.clientX - dragOffset.current.dx, window.innerWidth - 360))
+      const y = Math.max(8, Math.min(e.clientY - dragOffset.current.dy, window.innerHeight - 120))
+      setSearchPos({ x, y })
+    }
+    const onUp = (): void => {
+      dragOffset.current = null
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
   }, [])
 
   // Apply theme class on document root whenever mode changes.
@@ -107,12 +147,19 @@ export default function App(): JSX.Element {
 
   return (
     <ContextMenuProvider>
-      <div className="flex h-full flex-col bg-bg-base text-text">
+      <div className="relative flex h-full flex-col bg-bg-base text-text">
         <TitleBar
           onOpenSettings={() => setSettingsOpen(true)}
-          onToggleSearch={() => setSearchOpen((open) => !open)}
+          onToggleSearch={toggleSearch}
         />
-        {searchOpen && <GlobalSearchPanel onClose={() => setSearchOpen(false)} />}
+        {searchOpen && (
+          <GlobalSearchPanel
+            floating
+            style={{ top: searchPos.y, left: searchPos.x }}
+            onDragHandleMouseDown={onDragHandleMouseDown}
+            onClose={() => setSearchOpen(false)}
+          />
+        )}
         <div className="flex min-h-0 flex-1">
           <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
           <Workspace onOpenSettings={() => setSettingsOpen(true)} />

@@ -7,10 +7,16 @@ import { replaceMatches, splitMatchSegments } from '../services/search'
 import { readFileSync } from '../services/fileOps'
 import { useWorkspaceStore } from '../store/workspace'
 import { relativeDirFrom } from '../services/pathUtils'
-import { ChevronDownIcon, CloseIcon, FileIcon, SearchIcon } from './ui/icons'
+import { ChevronDownIcon, CloseIcon, FileIcon, GripIcon, SearchIcon } from './ui/icons'
 
 interface GlobalSearchPanelProps {
   onClose: () => void
+  /** When true, the panel floats as a draggable overlay instead of docking. */
+  floating?: boolean
+  /** Inline position style supplied by the drag owner (floating mode only). */
+  style?: React.CSSProperties
+  /** Mousedown handler that starts a drag (floating mode only). */
+  onDragHandleMouseDown?: (e: React.MouseEvent) => void
 }
 
 interface FlatMatch {
@@ -30,7 +36,12 @@ interface FlatMatch {
  * An optional replace mode mirrors VS Code too: expand the "替换" row, type a
  * replacement, then replace a single hit or every hit at once.
  */
-export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): JSX.Element {
+export default function GlobalSearchPanel({
+  onClose,
+  floating = false,
+  style,
+  onDragHandleMouseDown
+}: GlobalSearchPanelProps): JSX.Element {
   const { t } = useTranslation()
   const root = useWorkspaceRoot()
   const { query, setQuery, options, toggleOption, result, searching, error, openMatch, clear, refresh } =
@@ -171,11 +182,25 @@ export default function GlobalSearchPanel({ onClose }: GlobalSearchPanelProps): 
 
   return (
     <section
-      className="flex max-h-[55vh] min-h-0 shrink-0 flex-col border-b border-border bg-bg-surface"
+      className={
+        floating
+          ? 'absolute z-50 flex max-h-[70vh] min-h-0 w-[min(640px,90vw)] flex-col rounded-lg border border-border bg-bg-surface shadow-2xl'
+          : 'flex max-h-[55vh] min-h-0 shrink-0 flex-col border-b border-border bg-bg-surface'
+      }
+      style={floating ? style : undefined}
       onKeyDown={handleSectionKeyDown}
     >
       {/* Search input row */}
       <div className="flex items-center gap-2 px-3 py-2">
+        {floating && (
+          <button
+            onMouseDown={onDragHandleMouseDown}
+            title={t('globalSearch.dragHandle')}
+            className="shrink-0 cursor-move rounded p-0.5 text-text-muted hover:bg-bg-subtle hover:text-text"
+          >
+            <GripIcon width={14} height={14} />
+          </button>
+        )}
         <div className="relative flex min-w-0 flex-1 items-center">
           <span className="pointer-events-none absolute left-2 text-text-muted">
             <SearchIcon width={14} height={14} />

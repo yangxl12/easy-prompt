@@ -188,7 +188,8 @@
     "replacePlaceholder": "Replace with…",
     "replaceOne": "Replace",
     "replaceAll": "Replace All",
-    "replaced": "Replaced {{count}} matches in {{files}} files"
+    "replaced": "Replaced {{count}} matches in {{files}} files",
+    "dragHandle": "Drag to move the search panel"
   },
   "search": {
     "find": "Find",

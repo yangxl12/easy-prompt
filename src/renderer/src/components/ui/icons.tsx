@@ -49,6 +49,17 @@ export const CloseIcon = (p: IconProps): JSX.Element => (
   </svg>
 )
 
+export const GripIcon = (p: IconProps): JSX.Element => (
+  <svg {...base} {...p}>
+    <circle cx="9" cy="6" r="1.2" />
+    <circle cx="15" cy="6" r="1.2" />
+    <circle cx="9" cy="12" r="1.2" />
+    <circle cx="15" cy="12" r="1.2" />
+    <circle cx="9" cy="18" r="1.2" />
+    <circle cx="15" cy="18" r="1.2" />
+  </svg>
+)
+
 export const FileIcon = (p: IconProps): JSX.Element => (
   <svg {...base} {...p}>
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
