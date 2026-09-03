@@ -35,9 +35,15 @@ const READ_CONCURRENCY = 16
 
 /** Ids of searches the renderer is no longer interested in. */
 const cancelledIds = new Set<string>()
+/** Keep the set bounded — stale ids outlive their scans (cancel-after-done). */
+const MAX_CANCELLED_IDS = 1000
 
 /** Mark an in-flight search as obsolete. Cheap and safe for unknown ids. */
 export function cancelSearch(searchId: string): void {
+  if (cancelledIds.size >= MAX_CANCELLED_IDS) {
+    const oldest = cancelledIds.values().next().value
+    if (oldest !== undefined) cancelledIds.delete(oldest)
+  }
   cancelledIds.add(searchId)
 }
 

@@ -9,6 +9,14 @@ import { useWorkspaceRoot } from '../hooks/useWorkspaceRoot'
 /** Debounce between keystrokes before a scan starts. */
 const DEBOUNCE_MS = 250
 
+/**
+ * Module-level id sequence: the hook remounts whenever the search panel
+ * opens/closes, so a per-instance counter would re-issue ids like `s1` that
+ * main may still hold in its cancelled-set — instantly "cancelling" every
+ * fresh search. Unique-per-app ids make cancel tokens collision-free.
+ */
+let searchIdSeq = 0
+
 /** Toggles mirrored from the search panel. */
 export interface GlobalSearchOptions {
   caseSensitive: boolean
@@ -52,7 +60,6 @@ export function useGlobalSearch(): {
 
   // Newest issued search id — responses that don't match are stale.
   const latestIdRef = useRef('')
-  const idCounterRef = useRef(0)
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -84,8 +91,7 @@ export function useGlobalSearch(): {
 
     setError(null)
     setSearching(true)
-    idCounterRef.current += 1
-    const searchId = `s${idCounterRef.current}`
+    const searchId = `s${++searchIdSeq}`
     latestIdRef.current = searchId
 
     const timer = setTimeout(() => {
@@ -99,7 +105,13 @@ export function useGlobalSearch(): {
             searchId
           })
           if (latestIdRef.current !== searchId) return // superseded
-          if (next.cancelled) return
+          // Defensive: a cancelled response that is still the newest id must
+          // not leave the panel spinning — surface it as an empty result.
+          if (next.cancelled) {
+            setResult({ ...next, cancelled: false, files: [], totalMatches: 0 })
+            setSearching(false)
+            return
+          }
           setResult(next)
           setSearching(false)
         } catch {
