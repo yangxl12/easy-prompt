@@ -24,10 +24,30 @@ export interface Tab {
   revision: number
 }
 
+/**
+ * A request to scroll an open editor to a range and select it — used by global
+ * search to jump to a hit. `nonce` is bumped on every request so revealing the
+ * same location twice still re-triggers.
+ */
+export interface RevealTarget {
+  /** Absolute path of the tab to reveal in. */
+  path: string
+  /** 1-based line number. */
+  line: number
+  /** 0-based column within the line. */
+  column: number
+  /** Length of the range to select, in code units. */
+  length: number
+  /** Monotonic counter — the effect key that makes repeat reveals fire. */
+  nonce: number
+}
+
 /** The tab state machine: open/close/rename/reorder tabs and their edit state. */
 export interface TabsSlice {
   tabs: Tab[]
   activePath: string | null
+  /** Latest "scroll to this range" request, or null when none is pending. */
+  pendingReveal: RevealTarget | null
 
   openFile: (path: string, name: string, content: string, readOnly?: boolean) => void
   closeTab: (path: string) => void
@@ -55,11 +75,14 @@ export interface TabsSlice {
   closeOtherTabs: (path: string) => void
   /** Close all tabs to the right of the one with the given path. */
   closeTabsToRight: (path: string) => void
+  /** Ask the editor for `target.path` to scroll to that range and select it. */
+  requestReveal: (target: Omit<RevealTarget, 'nonce'>) => void
 }
 
 export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = (set) => ({
   tabs: [],
   activePath: null,
+  pendingReveal: null,
 
   openFile: (path: string, name: string, content: string, readOnly?: boolean) =>
     set((s) => {
@@ -222,7 +245,14 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         tabs,
         activePath: activeStillOpen ? s.activePath : path
       }
-    })
+    }),
+
+  // Reveal requests are fire-and-forget: the editor effect keys off `nonce`,
+  // so a fresh object is enough to (re)trigger it.
+  requestReveal: (target) =>
+    set((s) => ({
+      pendingReveal: { ...target, nonce: (s.pendingReveal?.nonce ?? 0) + 1 }
+    }))
 })
 
 /** Helper: get the effective content for a tab (dirty or saved). */

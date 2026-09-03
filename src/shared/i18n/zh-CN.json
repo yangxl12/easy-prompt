@@ -167,6 +167,23 @@
     "yes": "是",
     "no": "否"
   },
+  "globalSearch": {
+    "toggle": "全局搜索 (Ctrl+Shift+F)",
+    "placeholder": "在工作区中搜索…",
+    "caseSensitive": "区分大小写",
+    "wholeWord": "全字匹配",
+    "regex": "使用正则表达式",
+    "clear": "清空搜索",
+    "searching": "搜索中…",
+    "resultCount": "{{matches}} 个结果，位于 {{files}} 个文档",
+    "noResults": "没有找到匹配的内容",
+    "hint": "输入关键词，搜索工作区中所有 Markdown 文档的内容",
+    "noWorkspace": "请先在侧边栏选择一个工作目录",
+    "invalidRegex": "正则表达式无效",
+    "failed": "搜索失败，请重试",
+    "truncated": "结果过多，已截断（扫描 {{scanned}} 个文档）",
+    "openMatch": "打开并定位到该匹配"
+  },
   "search": {
     "find": "查找",
     "replace": "替换",

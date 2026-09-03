@@ -167,6 +167,23 @@
     "yes": "Yes",
     "no": "No"
   },
+  "globalSearch": {
+    "toggle": "Global search (Ctrl+Shift+F)",
+    "placeholder": "Search in workspace…",
+    "caseSensitive": "Match case",
+    "wholeWord": "Match whole word",
+    "regex": "Use regular expression",
+    "clear": "Clear search",
+    "searching": "Searching…",
+    "resultCount": "{{matches}} results in {{files}} files",
+    "noResults": "No results found",
+    "hint": "Type a keyword to search the content of every Markdown file",
+    "noWorkspace": "Select a workspace folder in the sidebar first",
+    "invalidRegex": "Invalid regular expression",
+    "failed": "Search failed, please retry",
+    "truncated": "Too many results — truncated ({{scanned}} files scanned)",
+    "openMatch": "Open and jump to this match"
+  },
   "search": {
     "find": "Find",
     "replace": "Replace",

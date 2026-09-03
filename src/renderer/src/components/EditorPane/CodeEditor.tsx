@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { EditorState, type Extension } from '@codemirror/state'
+import { EditorSelection, EditorState, type Extension } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, undo, redo } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
@@ -37,6 +37,18 @@ const markdownHighlightStyle = HighlightStyle.define([
     color: 'rgb(var(--color-editor-markup))'
   }
 ])
+
+/** A range to reveal inside an already-open editor. */
+export interface RevealTargetRange {
+  /** 1-based line number. */
+  line: number
+  /** 0-based column within the line. */
+  column: number
+  /** Length of the range to select, in code units. */
+  length: number
+  /** Bumped on every request so repeat reveals re-trigger the effect. */
+  nonce: number
+}
 
 interface CodeEditorProps {
   value: string
@@ -87,6 +99,12 @@ interface CodeEditorProps {
   onPrevTab?: () => void
   /** Called when the text selection changes (hasSelection flag). */
   onSelectionChange?: (hasSelection: boolean) => void
+  /**
+   * Scroll to a range and select it (global search "jump to match"). A new
+   * object — not a changed value — is what triggers the jump, so revealing the
+   * same spot twice works.
+   */
+  revealTarget?: RevealTargetRange
 }
 
 /** Imperative editor actions exposed to the parent for the context menu. */
@@ -139,7 +157,8 @@ export default function CodeEditor({
   onNewFile,
   onNextTab,
   onPrevTab,
-  onSelectionChange
+  onSelectionChange,
+  revealTarget
 }: CodeEditorProps): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -500,6 +519,27 @@ export default function CodeEditor({
     })
     valueRef.current = value
   }, [value])
+
+  // Reveal a range (global search jump): scroll it into view and select it, so
+  // the hit is both visible and immediately editable. Runs after the mount
+  // effect above, so the view always exists when a target arrives on mount.
+  useEffect(() => {
+    if (!revealTarget) return
+    const view = viewRef.current
+    if (!view) return
+    const doc = view.state.doc
+    if (doc.lines === 0) return
+    const lineNo = Math.min(Math.max(revealTarget.line, 1), doc.lines)
+    const line = doc.line(lineNo)
+    const from = Math.min(line.from + Math.max(revealTarget.column, 0), line.to)
+    const to = Math.min(from + Math.max(revealTarget.length, 0), line.to)
+    const range = EditorSelection.range(from, to)
+    view.dispatch({
+      selection: range,
+      effects: EditorView.scrollIntoView(range, { y: 'center' })
+    })
+    view.focus()
+  }, [revealTarget])
 
   return (
     <div className="relative h-full overflow-hidden">

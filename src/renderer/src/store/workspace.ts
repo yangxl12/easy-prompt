@@ -18,6 +18,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((...a) => ({
 }))
 
 // Re-exports so existing callers keep their import paths stable.
-export type { Tab } from './tabs'
+export type { Tab, RevealTarget } from './tabs'
 export { tabContent } from './tabs'
 export type { FileMarker } from './fileTree'

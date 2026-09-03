@@ -2,14 +2,19 @@ import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '../store/config'
 import type { ThemeMode, Language } from '@shared/types'
 import { LANGUAGES } from '@shared/i18n'
-import { SunIcon, MoonIcon, SettingsIcon, GlobeIcon } from './ui/icons'
+import { SunIcon, MoonIcon, SettingsIcon, GlobeIcon, SearchIcon } from './ui/icons'
 import { Button } from './ui/Button'
 
 interface TitleBarProps {
   onOpenSettings: () => void
+  /** Toggle the workspace-wide search panel. */
+  onToggleSearch: () => void
 }
 
-export default function TitleBar({ onOpenSettings }: TitleBarProps): JSX.Element {
+export default function TitleBar({
+  onOpenSettings,
+  onToggleSearch
+}: TitleBarProps): JSX.Element {
   const { t } = useTranslation()
   const { config, setTheme, setLanguage } = useConfigStore()
 
@@ -40,6 +45,16 @@ export default function TitleBar({ onOpenSettings }: TitleBarProps): JSX.Element
         className="flex items-center gap-1"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
+        {/* Global search across the workspace */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onToggleSearch}
+          title={t('globalSearch.toggle')}
+        >
+          <SearchIcon />
+        </Button>
+
         {/* Language */}
         <label className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-bg-subtle">
           <GlobeIcon />

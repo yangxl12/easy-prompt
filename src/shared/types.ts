@@ -89,6 +89,54 @@ export interface FileNode {
   children?: FileNode[]
 }
 
+/* ---------- Workspace-wide content search ---------- */
+
+/** Options for a workspace search. Mirrors the panel's toggles. */
+export interface SearchOptions {
+  /** The needle: plain text or a regex source when `useRegex` is set. */
+  query: string
+  caseSensitive?: boolean
+  /** Match only whole words (CJK-aware: neighbours must not be word chars). */
+  wholeWord?: boolean
+  /** Treat `query` as a JavaScript regex source. */
+  useRegex?: boolean
+}
+
+/** A single hit inside a file. */
+export interface SearchMatch {
+  /** 1-based line number. */
+  line: number
+  /** 0-based column of the match start, measured in code units. */
+  column: number
+  /** Length of the matched text in code units. */
+  length: number
+  /** The full line text (truncated for very long lines). */
+  lineText: string
+}
+
+/** All hits inside one file, plus a display name for the renderer. */
+export interface SearchFileResult {
+  /** Absolute path — used to open the file. */
+  path: string
+  /** File name (last segment). */
+  name: string
+  matches: SearchMatch[]
+}
+
+/** Result of one search run, correlated back by `searchId`. */
+export interface SearchResult {
+  /** Echoes the id supplied by the caller; stale responses can be dropped. */
+  searchId: string
+  files: SearchFileResult[]
+  totalMatches: number
+  /** Number of files scanned (for the status line). */
+  scannedFiles: number
+  /** True when a cap was hit and the result set is partial. */
+  truncated: boolean
+  /** True when the run was superseded/cancelled by a newer search. */
+  cancelled: boolean
+}
+
 /* ---------- IPC contracts ---------- */
 
 /** AI task discriminator. Vision uses image_url content, text is pure chat. */
@@ -156,6 +204,8 @@ export const IPC = {
   FS_SHOW_IN_FOLDER: 'fs:show-in-folder',
   FS_WATCH: 'fs:watch',
   FS_WATCH_STOP: 'fs:watch-stop',
+  FS_SEARCH: 'fs:search',
+  FS_SEARCH_CANCEL: 'fs:search-cancel',
   // ai
   AI_CALL: 'ai:call',
   AI_TEST: 'ai:test',

@@ -39,6 +39,7 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   const tabs = useWorkspaceStore((s) => s.tabs)
   const activePath = useWorkspaceStore((s) => s.activePath)
   const pendingRenamePath = useWorkspaceStore((s) => s.pendingRenamePath)
+  const pendingReveal = useWorkspaceStore((s) => s.pendingReveal)
   const edit = useWorkspaceStore((s) => s.edit)
   const setActive = useWorkspaceStore((s) => s.setActive)
   const workspaceRoot = useWorkspaceRoot()
@@ -352,6 +353,9 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
                   onNextTab={isActive ? goToNextTab : undefined}
                   onPrevTab={isActive ? goToPrevTab : undefined}
                   onSelectionChange={isActive ? setHasSelection : undefined}
+                  revealTarget={
+                    pendingReveal && pendingReveal.path === tab.path ? pendingReveal : undefined
+                  }
                 />
               )
 

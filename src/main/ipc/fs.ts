@@ -3,11 +3,13 @@ import path from 'node:path'
 import { IPC } from '@shared/types'
 import { getConfigInternal } from '../config/store'
 import * as fsService from '../services/fs'
+import { searchWorkspace, cancelSearch } from '../services/search'
 import {
   assertString,
   assertStringArray,
   resolveWorkspacePath
 } from '../services/workspacePath'
+import type { SearchOptions } from '@shared/types'
 
 const MAX_PATH_LEN = 4096
 const MAX_CONTENT_CHARS = 16 * 1024 * 1024
@@ -106,6 +108,28 @@ export function registerFsIpc(): void {
       assertString(filePath, MAX_PATH_LEN, 'file path')
     )
     await shell.openPath(path.dirname(p))
+    return true
+  })
+
+  ipcMain.handle(IPC.FS_SEARCH, async (_e, req: unknown) => {
+    const root = await workspace()
+    const body = (req ?? {}) as SearchOptions & { searchId?: unknown }
+    return searchWorkspace(
+      root,
+      {
+        query: assertString(body.query, 500, 'query'),
+        caseSensitive: body.caseSensitive === true,
+        wholeWord: body.wholeWord === true,
+        useRegex: body.useRegex === true
+      },
+      typeof body.searchId === 'string' ? body.searchId : ''
+    )
+  })
+
+  // Supersede an in-flight search. The renderer fires this before starting a
+  // new run so a stale scan stops early instead of racing the fresh one.
+  ipcMain.handle(IPC.FS_SEARCH_CANCEL, async (_e, searchId: unknown) => {
+    cancelSearch(assertString(searchId, 200, 'search id'))
     return true
   })
 

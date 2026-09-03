@@ -7,11 +7,13 @@ import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import SettingsDialog from './components/SettingsDialog'
+import GlobalSearchPanel from './components/GlobalSearchPanel'
 import { ContextMenuProvider } from './components/ui/ContextMenu'
 
 export default function App(): JSX.Element {
   const { config, loaded, setConfig } = useConfigStore()
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const { i18n } = useTranslation()
 
   // Bootstrap: load config from main, init i18n, subscribe to config changes.
@@ -68,6 +70,19 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
+  // Global keyboard shortcut: Ctrl+Shift+F / Cmd+Shift+F opens global search.
+  // CodeMirror doesn't bind this combination, so it bubbles up from the editor.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault()
+        setSearchOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   // Apply theme class on document root whenever mode changes.
   useEffect(() => {
     const resolved = resolveTheme(config.app.theme)
@@ -93,7 +108,11 @@ export default function App(): JSX.Element {
   return (
     <ContextMenuProvider>
       <div className="flex h-full flex-col bg-bg-base text-text">
-        <TitleBar onOpenSettings={() => setSettingsOpen(true)} />
+        <TitleBar
+          onOpenSettings={() => setSettingsOpen(true)}
+          onToggleSearch={() => setSearchOpen((open) => !open)}
+        />
+        {searchOpen && <GlobalSearchPanel onClose={() => setSearchOpen(false)} />}
         <div className="flex min-h-0 flex-1">
           <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
           <Workspace onOpenSettings={() => setSettingsOpen(true)} />

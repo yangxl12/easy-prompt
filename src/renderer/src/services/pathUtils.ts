@@ -27,3 +27,20 @@ export function baseNameAny(p: string): string {
   const parts = p.split(/[\\/]/)
   return parts[parts.length - 1] ?? ''
 }
+
+/**
+ * Directory of `filePath` expressed relative to `root` — display only (used by
+ * the search panel to disambiguate same-named notes). Returns '' when the file
+ * sits directly in the workspace root, and the absolute directory when it is
+ * not under `root` at all.
+ */
+export function relativeDirFrom(root: string | null, filePath: string): string {
+  const dir = filePath.slice(0, filePath.length - baseNameAny(filePath).length)
+  if (!root) return normalize(dir)
+  const r = normalize(root)
+  const d = normalize(dir)
+  // Case-insensitive: Windows paths from main may differ in drive-letter case.
+  if (d === r) return ''
+  if (d.toLowerCase().startsWith(`${r.toLowerCase()}/`)) return d.slice(r.length + 1)
+  return d
+}
