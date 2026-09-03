@@ -7,7 +7,7 @@ A cross-platform desktop app for writing and managing AI prompts. Built with **E
 
 ## ✨ Features
 
-- **Global hotkey** — summon the window anytime (`Alt+Cmd+P` on macOS, `Alt+Shift+P` on Windows, customizable in Settings). The app hides to the system tray instead of quitting, so it's always one keystroke away.
+- **Global hotkey** — summon the window anytime (`Shift+P` by default, customizable in Settings). The app hides to the system tray instead of quitting, so it's always one keystroke away.
 - **Markdown-first** — prompts are stored as plain `.md` files in a workspace folder of your choice. Nothing is locked in a database.
 - **Split live preview** — write on the left with a [CodeMirror 6](https://codemirror.net/) editor, see the rendered preview on the right. Drag the divider to resize.
 - **Multi-tab editing** — open several prompts at once and switch between them, VS Code-style.
@@ -15,7 +15,7 @@ A cross-platform desktop app for writing and managing AI prompts. Built with **E
 - **AI: UI image → prompt** — paste a UI screenshot into the editor; a banner offers to **delete** or **keep** the image, then the configured AI describes it and generates a structured prompt.
 - **AI: optimize prompt** — polish your prompt to be clearer and better structured, then choose to **overwrite** the original or **save as a new** file. Core intent is preserved.
 - **Multi-model configuration** — add as many models as you like, switch the active one anytime. Built-in presets for **DeepSeek** and **Zhipu GLM**.
-- **API keys encrypted at rest** — secrets are encrypted with the OS keychain (`safeStorage`) before being written to disk.
+- **API keys protected at rest** — secrets are encrypted with the OS keychain (`safeStorage`) when available; on systems without a usable keychain the key is stored as-is.
 - **Light / Dark / System themes** and **Chinese / English** UI, defaulting to Chinese.
 
 ## 🔧 Tech Stack
@@ -91,7 +91,7 @@ connection** to verify.
 
 | What | Path |
 |------|------|
-| Workspace (your `.md` files) | `~/Documents/EasyPrompt` (configurable) |
+| Workspace (your `.md` files) | None by default — pick any folder on first launch |
 | App config (`config.json`, keys encrypted) | OS user-data dir, e.g. `~/Library/Application Support/EasyPrompt` |
 
 ## 🗂 Project Structure

@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from './workspace'
+import { isPathWithin } from '../services/pathUtils'
 
 /**
  * Per-tab state. `dirtyContent` holds edits not yet written to disk; when set,
@@ -15,6 +16,12 @@ export interface Tab {
   dirtyContent: string | null
   /** When true, the tab is read-only (preview mode) and cannot be edited. */
   readOnly?: boolean
+  /**
+   * Monotonic version of the *effective* content (dirty ?? saved). Async AI
+   * flows capture it at request time and refuse to write back when the doc
+   * moved on in the meantime.
+   */
+  revision: number
 }
 
 /** The tab state machine: open/close/rename/reorder tabs and their edit state. */
@@ -29,8 +36,13 @@ export interface TabsSlice {
   setSaved: (path: string, content: string) => void
   /** Update the dirty (unsaved) content of a tab. */
   edit: (path: string, content: string) => void
-  /** Clear dirty flag after a successful save. */
-  markClean: (path: string) => void
+  /**
+   * Commit a successful disk write. `persistedContent` is the exact version
+   * that was written: savedContent always becomes it, and dirtyContent is
+   * only cleared when it still matches (i.e. the user kept typing — newer
+   * edits stay dirty so they are not silently "marked saved").
+   */
+  commitSaved: (path: string, persistedContent: string) => void
   /** Rename a tab's path (used after a rename operation). */
   renameTab: (oldPath: string, newPath: string, newName: string) => void
   /** Rewrite open tabs whose paths live under a renamed folder. */
@@ -58,14 +70,28 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         return {
           tabs: s.tabs.map((t) =>
             t.path === path
-              ? { ...t, name, savedContent: content, dirtyContent: t.dirtyContent, readOnly: readOnly ?? false }
+              ? {
+                  ...t,
+                  name,
+                  savedContent: content,
+                  dirtyContent: t.dirtyContent,
+                  readOnly: readOnly ?? false,
+                  // A content refresh changes the effective doc for clean tabs.
+                  revision:
+                    t.dirtyContent === null && content !== t.savedContent
+                      ? t.revision + 1
+                      : t.revision
+                }
               : t
           ),
           activePath: path
         }
       }
       return {
-        tabs: [...s.tabs, { path, name, savedContent: content, dirtyContent: null, readOnly: readOnly ?? false }],
+        tabs: [
+          ...s.tabs,
+          { path, name, savedContent: content, dirtyContent: null, readOnly: readOnly ?? false, revision: 0 }
+        ],
         activePath: path
       }
     }),
@@ -85,22 +111,46 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
 
   setSaved: (path, content) =>
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.path === path ? { ...t, savedContent: content } : t))
-    })),
-
-  edit: (path, content) =>
-    set((s) => ({
       tabs: s.tabs.map((t) =>
-        t.path === path
-          ? { ...t, dirtyContent: content === t.savedContent ? null : content }
+        t.path === path && t.savedContent !== content
+          ? {
+              ...t,
+              savedContent: content,
+              // Clean tabs see a new effective doc → bump the version so
+              // in-flight AI writes notice the change.
+              revision: t.dirtyContent === null ? t.revision + 1 : t.revision
+            }
           : t
       )
     })),
 
-  markClean: (path) =>
+  edit: (path, content) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.path !== path) return t
+        // No-op edits must not bump the revision.
+        if (content === (t.dirtyContent ?? t.savedContent)) return t
+        return {
+          ...t,
+          dirtyContent: content === t.savedContent ? null : content,
+          revision: t.revision + 1
+        }
+      })
+    })),
+
+  commitSaved: (path, persistedContent) =>
     set((s) => ({
       tabs: s.tabs.map((t) =>
-        t.path === path ? { ...t, savedContent: t.dirtyContent ?? t.savedContent, dirtyContent: null } : t
+        t.path === path
+          ? {
+              ...t,
+              savedContent: persistedContent,
+              dirtyContent:
+                t.dirtyContent !== null && t.dirtyContent !== persistedContent
+                  ? t.dirtyContent
+                  : null
+            }
+          : t
       )
     })),
 
@@ -130,7 +180,8 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
 
   dropTabsUnder: (prefix) =>
     set((s) => {
-      const tabs = s.tabs.filter((t) => !t.path.startsWith(prefix))
+      // Subtree-aware match: `C:\ws\foo` must not close `C:\ws\foobar.md`.
+      const tabs = s.tabs.filter((t) => !isPathWithin(prefix, t.path))
       const activeStillOpen = tabs.some((t) => t.path === s.activePath)
       return {
         tabs,

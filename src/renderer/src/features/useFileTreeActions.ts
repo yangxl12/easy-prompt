@@ -9,6 +9,7 @@ import {
   renameNode as renameNodeFs
 } from '../services/fileOps'
 import { insertNode, renameNodeInTree, removeNodeFromTree } from '../services/treeOps'
+import { baseNameAny } from '../services/pathUtils'
 
 /**
  * File-tree mutations with optimistic updates. Each action performs the disk
@@ -41,7 +42,7 @@ export function useFileTreeActions(): {
   const createNode = useCallback(
     async (dir: string, name: string, kind: 'file' | 'folder') => {
       const path = kind === 'folder' ? await createFolder(dir, name) : await createFile(dir, name)
-      const fileName = path.split(/[\\/]/).pop() ?? ''
+      const fileName = baseNameAny(path)
       // Optimistic insert: show the new node immediately; the next watcher
       // poll confirms it.
       const state = useWorkspaceStore.getState()

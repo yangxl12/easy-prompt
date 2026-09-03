@@ -51,8 +51,6 @@ export function useSelectionAi(
   abortSelectionPolish: () => void
 } {
   const { t } = useTranslation()
-  const activePath = useWorkspaceStore((s) => s.activePath)
-  const activeTab = useWorkspaceStore((s) => s.tabs.find((tb) => tb.path === s.activePath) ?? null)
 
   const [selectionOptimize, setSelectionOptimize] = useState<SelectionAiState>(IDLE)
   const [selectionPolish, setSelectionPolish] = useState<SelectionAiState>(IDLE)
@@ -65,38 +63,62 @@ export function useSelectionAi(
       setState: Dispatch<SetStateAction<SelectionAiState>>,
       abortRef: MutableRefObject<(() => void) | null>
     ): Promise<void> => {
-      if (!activePath || !activeTab) return
-        const cmds = commandsMapRef.current?.get(activePath)
-        if (!cmds) return
-        const selectedText = cmds.getSelectionText()
-        if (!selectedText.trim()) return
-        setState({ busy: true, streaming: '', error: null })
-        try {
-          // Fresh config snapshot so a model switch mid-session is respected.
-          const config = useConfigStore.getState().config
-          const { result, abort } = service(config, selectedText, (delta) => {
-            // Functional update so concurrent chunks compose without clobbering.
-            setState((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
-          })
-          // Capture abort synchronously so the stop button works immediately.
-          abortRef.current = abort
-          const { result: replaced, aborted } = await result
-          if (aborted) {
-            // Cancellation is a normal termination — not an error.
-            setState(IDLE)
-            return
-          }
+      // Read fresh from the store: a stale closure (e.g. a delayed click)
+      // must not run against the wrong tab.
+      const { activePath: curPath, tabs } = useWorkspaceStore.getState()
+      const tab = tabs.find((tb) => tb.path === curPath)
+      if (!curPath || !tab || tab.readOnly) return
+      const cmds = commandsMapRef.current?.get(tab.path)
+      if (!cmds) return
+      const range = cmds.getSelectionRange()
+      if (!range) return
+      const selectedText = cmds.getSelectionText()
+      if (!selectedText.trim()) return
+      // Capture the exact target (tab, range, text, doc revision) so the
+      // write-back can refuse to clobber edits made while the AI ran.
+      const captured = {
+        tabPath: tab.path,
+        revision: tab.revision,
+        from: range.from,
+        to: range.to,
+        selectedText
+      }
+      setState({ busy: true, streaming: '', error: null })
+      try {
+        // Fresh config snapshot so a model switch mid-session is respected.
+        const config = useConfigStore.getState().config
+        const { result, abort } = service(config, selectedText, (delta) => {
+          // Functional update so concurrent chunks compose without clobbering.
+          setState((s) => (s.busy ? { ...s, streaming: (s.streaming ?? '') + delta } : s))
+        })
+        // Capture abort synchronously so the stop button works immediately.
+        abortRef.current = abort
+        const { result: replaced, aborted } = await result
+        if (aborted) {
+          // Cancellation is a normal termination — not an error.
           setState(IDLE)
-          // Splice the result back into the document, replacing the original
-          // selection in place.
-          cmds.replaceSelection(replaced)
-        } catch (err) {
-          setState({ busy: false, streaming: null, error: t('ai.error', { message: (err as Error).message }) })
+          return
+        }
+        // Re-confirm the target: the tab must still exist and be editable.
+        const current = useWorkspaceStore.getState().tabs.find(
+          (tb) => tb.path === captured.tabPath
+        )
+        const applied =
+          !!current &&
+          !current.readOnly &&
+          cmds.replaceRange(captured.from, captured.to, replaced, captured.selectedText)
+        setState(
+          applied
+            ? IDLE
+            : { busy: false, streaming: null, error: t('ai.docChanged') }
+        )
+      } catch (err) {
+        setState({ busy: false, streaming: null, error: t('ai.error', { message: (err as Error).message }) })
       } finally {
         abortRef.current = null
       }
     },
-    [activePath, activeTab, commandsMapRef, t]
+    [commandsMapRef, t]
   )
 
   const optimizeSelection = useCallback(

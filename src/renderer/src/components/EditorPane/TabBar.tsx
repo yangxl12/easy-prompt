@@ -39,9 +39,16 @@ interface DragState {
  *   transitions on `transform`.
  */
 export default function TabBar({
-  onRequestClose
+  onRequestClose,
+  onRequestCloseTabs
 }: {
   onRequestClose?: (path: string) => void
+  /**
+   * Batch close entry (close-right / close-others). The host routes these
+   * through the dirty-tab close transaction so unsaved edits are confirmed;
+   * when absent the tabs close directly.
+   */
+  onRequestCloseTabs?: (paths: string[]) => void
 }): JSX.Element {
   const { t } = useTranslation()
   const tabs = useWorkspaceStore((s) => s.tabs)
@@ -68,18 +75,31 @@ export default function TabBar({
           id: 'close-right',
           label: t('tabs.closeRight'),
           disabled: isLast,
-          onClick: () => closeTabsToRight(path)
+          onClick: () => {
+            if (onRequestCloseTabs) {
+              const idx = tabs.findIndex((tb) => tb.path === path)
+              if (idx !== -1) onRequestCloseTabs(tabs.slice(idx + 1).map((tb) => tb.path))
+            } else {
+              closeTabsToRight(path)
+            }
+          }
         },
         {
           id: 'close-others',
           label: t('tabs.closeOthers'),
           disabled: tabs.length <= 1,
-          onClick: () => closeOtherTabs(path)
+          onClick: () => {
+            if (onRequestCloseTabs) {
+              onRequestCloseTabs(tabs.filter((tb) => tb.path !== path).map((tb) => tb.path))
+            } else {
+              closeOtherTabs(path)
+            }
+          }
         }
       ]
       openMenu(e, items)
     },
-    [t, handleClose, closeTabsToRight, closeOtherTabs, tabs.length, openMenu]
+    [t, handleClose, onRequestCloseTabs, closeTabsToRight, closeOtherTabs, tabs, openMenu]
   )
 
   // Refs -----------------------------------------------------------

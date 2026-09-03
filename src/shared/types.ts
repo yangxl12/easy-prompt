@@ -152,8 +152,10 @@ export const IPC = {
   FS_DELETE: 'fs:delete',
   FS_COPY: 'fs:copy',
   FS_DELETE_MULTI: 'fs:delete-multi',
+  FS_CREATE_SIBLING: 'fs:create-sibling',
   FS_SHOW_IN_FOLDER: 'fs:show-in-folder',
   FS_WATCH: 'fs:watch',
+  FS_WATCH_STOP: 'fs:watch-stop',
   // ai
   AI_CALL: 'ai:call',
   AI_TEST: 'ai:test',

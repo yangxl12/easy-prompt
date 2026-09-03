@@ -63,8 +63,18 @@ async function loadFromDisk(): Promise<AppConfig> {
   const file = configPath()
   try {
     if (!existsSync(file)) return createDefaultConfig()
-    const raw = await fs.readFile(file, 'utf-8')
-    return { ...createDefaultConfig(), ...(JSON.parse(raw) as AppConfig) }
+    const raw = JSON.parse(await fs.readFile(file, 'utf-8')) as Partial<AppConfig>
+    const defaults = createDefaultConfig()
+    // Deep-ish merge so configs written by older versions gain newly added
+    // fields (e.g. a new `app.*` setting) with their defaults instead of
+    // leaving them undefined.
+    return {
+      ...defaults,
+      ...raw,
+      schemaVersion: raw.schemaVersion ?? defaults.schemaVersion,
+      app: { ...defaults.app, ...(raw.app ?? {}) },
+      ai: { ...defaults.ai, ...(raw.ai ?? {}) }
+    }
   } catch (err) {
     console.error('[EasyPrompt] Failed to read config, using defaults:', err)
     return createDefaultConfig()
@@ -127,8 +137,11 @@ export async function setConfig(next: AppConfig): Promise<AppConfig> {
       models: next.ai.models.map((m) => persistModel(m, cached))
     }
   }
-  cached = toStore
+  // Persist first, then commit to the in-memory cache — otherwise a failed
+  // write would leave this process believing the new config while the disk
+  // still holds (and next start reloads) the old one.
   await saveToDisk(toStore)
+  cached = toStore
   return getConfigForRenderer()
 }
 
@@ -148,8 +161,9 @@ export async function patchConfig(patch: AppConfigPatch): Promise<AppConfig> {
         }
       : current.ai
   }
-  cached = merged
+  // Same write-then-cache ordering as setConfig (see above).
   await saveToDisk(merged)
+  cached = merged
   return getConfigForRenderer()
 }
 

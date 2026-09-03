@@ -91,9 +91,18 @@ export function createMainWindow(): BrowserWindow {
     mainWindow?.hide()
   })
 
-  // Open external links in the system browser, never in-app.
+  // Open external links in the system browser, never in-app. Links can come
+  // from user Markdown files, so only http(s) is allowed — other protocols
+  // (file:, custom scheme handlers, ...) are denied by default.
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      const { protocol } = new URL(details.url)
+      if (protocol === 'https:' || protocol === 'http:') {
+        void shell.openExternal(details.url)
+      }
+    } catch {
+      // Malformed URL — deny silently.
+    }
     return { action: 'deny' }
   })
 

@@ -24,6 +24,16 @@ export function registerConfigIpc(): void {
 
   ipcMain.handle(IPC.CONFIG_SET, async (_e, next: AppConfig): Promise<AppConfig> => {
     await setConfig(next)
+    // Whole-config replace goes through the same runtime side effects as a
+    // partial patch: re-register the shortcut, rebuild the tray menu and
+    // broadcast the change to every renderer window.
+    const accel = next.app.shortcut || defaultShortcut(process.platform)
+    if (!registerShortcut(accel)) {
+      console.warn(`[EasyPrompt] Shortcut "${accel}" failed to register — falling back to default`)
+      registerShortcut(defaultShortcut(process.platform))
+    }
+    rebuildTrayMenu(next.app.language)
+    void broadcastConfig()
     return getConfigForRenderer()
   })
 
@@ -45,6 +55,7 @@ export function registerConfigIpc(): void {
     if (patch.app?.language !== undefined) {
       rebuildTrayMenu(patch.app.language)
     }
+    void broadcastConfig()
     return getConfigForRenderer()
   })
 

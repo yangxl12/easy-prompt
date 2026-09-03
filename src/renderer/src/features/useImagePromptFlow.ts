@@ -1,6 +1,6 @@
-import { useCallback, useRef, type RefObject } from 'react'
+import { useCallback, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useWorkspaceStore, tabContent } from '../store/workspace'
+import { useWorkspaceStore } from '../store/workspace'
 import { newDraftPath } from '../services/drafts'
 import { useImagePaste } from './useImageToPrompt'
 
@@ -18,6 +18,8 @@ export function useImagePromptFlow(): {
   handleImageFile: (file: File) => void
   /** Convert the captured image and append the generated prompt to the document. */
   handleConvertImage: () => Promise<void>
+  /** Last failure while writing the converted result back to the document. */
+  convertError: string | null
   /** Clipboard-first image pickup with a native file-picker fallback. */
   pickImage: () => Promise<void>
   /** Backing element for the hidden file picker input. */
@@ -29,8 +31,8 @@ export function useImagePromptFlow(): {
   const openFile = useWorkspaceStore((s) => s.openFile)
   const edit = useWorkspaceStore((s) => s.edit)
   const activeTab = tabs.find((tb) => tb.path === activePath) ?? null
-  const content = tabContent(activeTab ?? undefined)
   const image = useImagePaste()
+  const [convertError, setConvertError] = useState<string | null>(null)
 
   /**
    * Image ingress shared by paste + drop + file picker. When no tab is open,
@@ -48,6 +50,7 @@ export function useImagePromptFlow(): {
 
   const handleConvertImage = useCallback(async (): Promise<void> => {
     if (!activeTab || image.busy) return
+    const tabPath = activeTab.path
     // Capture the data URL BEFORE convert(): convert() does not clear it, but
     // capturing up front keeps this handler robust against any future change.
     const keptDataUrl = image.dataUrl
@@ -60,10 +63,20 @@ export function useImagePromptFlow(): {
       // Inline the image before the generated prompt so the doc stays visual.
       next = `![pasted-ui.png](${keptDataUrl})\n\n${prompt}`
     }
-    const updated = content ? `${content}\n\n${next}` : next
-    edit(activeTab.path, updated)
+    // Re-read the tab FRESH from the store: the conversion is async and the
+    // user may have kept typing in the meantime. Appending to the captured
+    // content would silently overwrite those edits.
+    const current = useWorkspaceStore.getState().tabs.find((tb) => tb.path === tabPath)
+    if (!current || current.readOnly) {
+      setConvertError(t('ai.docChanged'))
+      image.dismiss()
+      return
+    }
+    const currentContent = current.dirtyContent ?? current.savedContent
+    edit(tabPath, currentContent ? `${currentContent}\n\n${next}` : next)
+    setConvertError(null)
     image.dismiss()
-  }, [activeTab, image, content, edit])
+  }, [activeTab, image, edit, t])
 
   /**
    * Pick an image: try the system clipboard first (so the common "screenshot
@@ -92,5 +105,5 @@ export function useImagePromptFlow(): {
     fileInputRef.current?.click()
   }, [handleImageFile])
 
-  return { image, handleImageFile, handleConvertImage, pickImage, fileInputRef }
+  return { image, handleImageFile, handleConvertImage, convertError, pickImage, fileInputRef }
 }

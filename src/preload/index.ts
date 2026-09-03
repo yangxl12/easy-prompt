@@ -48,6 +48,12 @@ const api = {
     ipcRenderer.invoke(IPC.FS_CREATE_FOLDER, dir, name),
   rename: (oldPath: string, newName: string): Promise<string> =>
     ipcRenderer.invoke(IPC.FS_RENAME, oldPath, newName),
+  /**
+   * Create `"<name><suffix>.md"` next to `sourcePath` (computed in main with
+   * node:path so Windows separators are correct). Returns the new file path.
+   */
+  createSiblingFile: (sourcePath: string, suffix: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.FS_CREATE_SIBLING, sourcePath, suffix),
   remove: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.FS_DELETE, filePath),
   removeMulti: (filePaths: string[]): Promise<boolean> =>
@@ -63,7 +69,7 @@ const api = {
     ipcRenderer.send(IPC.FS_WATCH)
     return () => {
       ipcRenderer.off(IPC.FS_WATCH, listener)
-      ipcRenderer.send('fs:watch-stop')
+      ipcRenderer.send(IPC.FS_WATCH_STOP)
     }
   },
 
@@ -71,7 +77,7 @@ const api = {
   /** Open native folder picker; returns chosen path or null. */
   selectWorkspace: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC.CONFIG_SELECT_WORKSPACE),
-  /** Change workspace path & migrate files from old to new. */
+  /** Change workspace path — repoints the config only; files are NOT migrated. */
   changeWorkspace: (newPath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC.CONFIG_CHANGE_WORKSPACE, newPath),
 

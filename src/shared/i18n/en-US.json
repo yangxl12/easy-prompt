@@ -36,6 +36,7 @@
     "openFolder": "Open Folder",
     "preview": "Preview",
     "deleteConfirm": "Delete \"{{name}}\"?",
+    "dirtyTabsWarning": "{{count}} open document(s) under the deleted items have unsaved changes, which will be lost.",
     "renamePrompt": "Enter a new name"
   },
   "editor": {
@@ -56,8 +57,14 @@
     "draftSaveHint": "This is a draft. Create or open a file in the tree before saving.",
     "unsavedChanges": "Unsaved changes",
     "unsavedChangesMessage": "\"{{name}}\" has unsaved changes. Save before closing?",
+    "unsavedTabsMessage": "{{count}} tabs have unsaved changes: {{names}}",
+    "draftCloseMessage": "\"{{name}}\" is an unsaved draft. Its content will be lost when closed.",
+    "draftNotSavedHint": "Draft tabs have no backing file; their unsaved content will be discarded.",
     "saveAndClose": "Save & close",
+    "saveAllAndClose": "Save all & close",
     "discardChanges": "Don't save",
+    "discardAll": "Discard all",
+    "saveFailed": "Save failed: {{message}}",
     "lines": "{{count}} lines",
     "chars": "{{count}} chars",
     "selected": "{{count}} selected"
@@ -76,6 +83,7 @@
     "streaming": "AI is polishing…",
     "notConfigured": "Please configure an AI model in Settings",
     "error": "AI call failed: {{message}}",
+    "docChanged": "The document was modified while the AI was working — result not written",
     "optimizeHelp": "Polish for fluency and structure without changing the core intent",
     "convert": "Convert to prompt",
     "convertHelp": "Feed the screenshot/image to a vision model to generate a prompt that reproduces the UI",

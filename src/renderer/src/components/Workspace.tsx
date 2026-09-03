@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '../store/config'
-import { useWorkspaceStore, tabContent } from '../store/workspace'
+import { useWorkspaceStore, tabContent, type Tab } from '../store/workspace'
 import { useWorkspaceRoot } from '../hooks/useWorkspaceRoot'
 import TabBar from './EditorPane/TabBar'
 import CodeEditor, { type EditorCommands } from './EditorPane/CodeEditor'
@@ -18,6 +18,7 @@ import { useTabCloseConfirm } from '../features/useTabCloseConfirm'
 import { useSelectionAi } from '../features/useSelectionAi'
 import { useImagePromptFlow } from '../features/useImagePromptFlow'
 import { useEditorContextMenu } from '../features/useEditorContextMenu'
+import { isDraftPath } from '../services/drafts'
 
 interface WorkspaceProps {
   onOpenSettings: () => void
@@ -45,8 +46,9 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   const activeTab = tabs.find((tb) => tb.path === activePath) ?? null
   const content = tabContent(activeTab ?? undefined)
   const optimize = useOptimizePrompt()
-  const { saveTab } = useSaveFlows()
-  const { pendingCloseTab, requestCloseTab, resolveCloseTab } = useTabCloseConfirm()
+  const { saveTab, saveError } = useSaveFlows()
+  const { pendingCloseTabs, requestCloseTab, requestCloseTabs, resolveCloseTabs } =
+    useTabCloseConfirm()
 
   // Imperative editor commands for each tab, keyed by path. Used by the
   // right-click context menu and to focus the editor on tab switch.
@@ -59,7 +61,7 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
     abortSelectionOptimize,
     abortSelectionPolish
   } = useSelectionAi(commandsMapRef)
-  const { image, handleImageFile, handleConvertImage, pickImage, fileInputRef } =
+  const { image, handleImageFile, handleConvertImage, convertError, pickImage, fileInputRef } =
     useImagePromptFlow()
   const handleContextMenu = useEditorContextMenu(commandsMapRef, { optimizeSelection, pickImage })
 
@@ -134,7 +136,13 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
   const hasOpenTab = activeTab !== null
   const busy =
     optimize.busy || image.busy || selectionOptimize.busy || selectionPolish.busy
-  const aiError = optimize.error ?? image.error ?? selectionOptimize.error ?? selectionPolish.error
+  const aiError =
+    optimize.error ??
+    image.error ??
+    convertError ??
+    selectionOptimize.error ??
+    selectionPolish.error ??
+    saveError
 
   // Stats for the status bar: line count + char count of the active document.
   const stats = useMemo(() => {
@@ -312,7 +320,7 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
         <EmptyState onDropImage={handleImageFile} />
       ) : (
         <>
-          <TabBar onRequestClose={requestCloseTab} />
+          <TabBar onRequestClose={requestCloseTab} onRequestCloseTabs={requestCloseTabs} />
           <div className="relative flex min-h-0 flex-1 flex-col">
             {/* Render an editor for every open tab so undo history survives tab switches.
                 Only the active tab's editor is visible; others are display:none. */}
@@ -394,20 +402,9 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
         />
       )}
 
-      {/* Unsaved changes confirmation when closing a dirty tab. */}
-      {pendingCloseTab && (
-        <ChoiceDialog
-          title={t('editor.unsavedChanges')}
-          description={t('editor.unsavedChangesMessage', { name: pendingCloseTab.name })}
-          dismissible
-          onCancel={() => resolveCloseTab('cancel')}
-          options={[
-            { label: t('editor.saveAndClose'), value: 'save', variant: 'primary' },
-            { label: t('editor.discardChanges'), value: 'discard', variant: 'danger' },
-            { label: t('common.cancel'), value: 'cancel', variant: 'secondary' }
-          ]}
-          onChoose={(v) => { void resolveCloseTab(v as 'save' | 'discard' | 'cancel') }}
-        />
+      {/* Unsaved changes confirmation when closing dirty tabs (single or batch). */}
+      {pendingCloseTabs && (
+        <CloseTabsDialog pendingTabs={pendingCloseTabs} onResolve={resolveCloseTabs} />
       )}
 
       {/* Hidden file picker backing the toolbar "image→prompt" button. */}
@@ -424,5 +421,64 @@ export default function Workspace({ onOpenSettings }: WorkspaceProps): JSX.Eleme
         }}
       />
     </main>
+  )
+}
+
+/**
+ * Dirty-tab close confirmation — keeps "save / discard / cancel" semantics
+ * for single closes and batch closes (close-right / close-others). Draft tabs
+ * have no backing file, so for them only discard / cancel is offered.
+ */
+function CloseTabsDialog({
+  pendingTabs,
+  onResolve
+}: {
+  pendingTabs: Tab[]
+  onResolve: (action: 'save' | 'discard' | 'cancel') => Promise<void>
+}): JSX.Element {
+  const { t } = useTranslation()
+  const isSingle = pendingTabs.length === 1
+  const single = pendingTabs[0]
+  const hasDraft = pendingTabs.some((tb) => isDraftPath(tb.path))
+  const hasSavable = pendingTabs.some((tb) => !isDraftPath(tb.path))
+
+  let description: string
+  if (isSingle && isDraftPath(single.path)) {
+    description = t('editor.draftCloseMessage', { name: single.name })
+  } else if (isSingle) {
+    description = t('editor.unsavedChangesMessage', { name: single.name })
+  } else {
+    description = t('editor.unsavedTabsMessage', {
+      count: pendingTabs.length,
+      names: pendingTabs.map((tb) => tb.name).join('、')
+    })
+    if (hasDraft) description += `\n${t('editor.draftNotSavedHint')}`
+  }
+
+  const options: { label: string; value: 'save' | 'discard' | 'cancel'; variant: 'primary' | 'danger' | 'secondary' }[] = []
+  // Drafts cannot be saved (memory-only) — offer "save" only for real files.
+  if (hasSavable) {
+    options.push({
+      label: isSingle ? t('editor.saveAndClose') : t('editor.saveAllAndClose'),
+      value: 'save',
+      variant: 'primary'
+    })
+  }
+  options.push({
+    label: isSingle ? t('editor.discardChanges') : t('editor.discardAll'),
+    value: 'discard',
+    variant: 'danger'
+  })
+  options.push({ label: t('common.cancel'), value: 'cancel', variant: 'secondary' })
+
+  return (
+    <ChoiceDialog
+      title={t('editor.unsavedChanges')}
+      description={description}
+      dismissible
+      onCancel={() => void onResolve('cancel')}
+      options={options}
+      onChoose={(v) => { void onResolve(v as 'save' | 'discard' | 'cancel') }}
+    />
   )
 }

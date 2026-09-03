@@ -1,53 +1,86 @@
 import { useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore, type Tab } from '../store/workspace'
-import { writeFile } from '../services/fileOps'
+import { enqueueWrite } from '../services/saveQueue'
+import { isDraftPath } from '../services/drafts'
 
 /**
- * Dirty-tab close confirmation. Keeps the "save / discard / cancel" semantics:
- * closing a tab with unsaved edits must first ask the user; `save` writes to
- * disk (and marks the tab clean) before closing it.
+ * Dirty-tab close transaction. Keeps the "save / discard / cancel" semantics
+ * for every close path — single tab, "close others", "close right":
+ *
+ * - clean tabs close immediately;
+ * - dirty tabs go through one confirmation dialog (single or batch);
+ * - `save` writes each real file to disk (via the per-path write queue) and
+ *   commits the exact written content before closing the tab;
+ * - `draft://` tabs have no backing file — they can only be discarded, never
+ *   passed to file-system APIs.
  */
 export function useTabCloseConfirm(): {
-  /** The tab awaiting the user's close decision, if any. */
-  pendingCloseTab: Tab | null
-  /** Request closing a tab — closes clean tabs directly, dirty tabs go through the dialog. */
+  /** The dirty tabs awaiting the user's close decision, if any. */
+  pendingCloseTabs: Tab[] | null
+  /** Request closing one tab — closes clean tabs directly, dirty ones go through the dialog. */
   requestCloseTab: (path: string) => void
+  /** Request closing a set of tabs (e.g. close-right / close-others). */
+  requestCloseTabs: (paths: string[]) => void
   /** Resolve a pending close with the user's choice. */
-  resolveCloseTab: (action: 'save' | 'discard' | 'cancel') => Promise<void>
+  resolveCloseTabs: (action: 'save' | 'discard' | 'cancel') => Promise<void>
 } {
-  const tabs = useWorkspaceStore((s) => s.tabs)
-  const closeTab = useWorkspaceStore((s) => s.closeTab)
-  const [pendingCloseTab, setPendingCloseTab] = useState<Tab | null>(null)
+  const { t } = useTranslation()
+  const [pendingCloseTabs, setPendingCloseTabs] = useState<Tab[] | null>(null)
+
+  const requestCloseTabs = useCallback((paths: string[]) => {
+    const { tabs, closeTab } = useWorkspaceStore.getState()
+    const targets = paths
+      .map((p) => tabs.find((tb) => tb.path === p))
+      .filter((tb): tb is Tab => tb !== undefined)
+    const dirty = targets.filter((tb) => tb.dirtyContent !== null)
+    // Clean tabs close right away; dirty ones wait for the user's decision.
+    for (const tb of targets) {
+      if (tb.dirtyContent === null) closeTab(tb.path)
+    }
+    if (dirty.length > 0) {
+      setPendingCloseTabs(dirty)
+    }
+  }, [])
 
   const requestCloseTab = useCallback(
     (path: string) => {
-      const tab = tabs.find((t) => t.path === path)
-      if (tab && tab.dirtyContent !== null) {
-        setPendingCloseTab(tab)
-      } else {
-        closeTab(path)
-      }
+      requestCloseTabs([path])
     },
-    [tabs, closeTab]
+    [requestCloseTabs]
   )
 
-  const resolveCloseTab = useCallback(
+  const resolveCloseTabs = useCallback(
     async (action: 'save' | 'discard' | 'cancel') => {
-      const tab = pendingCloseTab
-      setPendingCloseTab(null)
-      if (!tab) return
+      const toClose = pendingCloseTabs
+      setPendingCloseTabs(null)
+      if (!toClose) return
       if (action === 'save') {
-        const toWrite = tab.dirtyContent ?? tab.savedContent
-        await writeFile(tab.path, toWrite)
-        useWorkspaceStore.getState().markClean(tab.path)
-        closeTab(tab.path)
-      } else if (action === 'discard') {
+        for (const tab of toClose) {
+          // Drafts are memory-only: never hand them to file-system APIs.
+          if (tab.dirtyContent === null || isDraftPath(tab.path)) continue
+          const toWrite = tab.dirtyContent
+          try {
+            await enqueueWrite(tab.path, toWrite)
+            useWorkspaceStore.getState().commitSaved(tab.path, toWrite)
+          } catch (err) {
+            // A failed save must not close anything — keep the tabs open so
+            // the edits stay visible and recoverable.
+            window.alert(t('editor.saveFailed', { message: (err as Error).message }))
+            return
+          }
+        }
+      }
+      // 'save' succeeded for all files (drafts are dropped unsaved) or the
+      // user chose 'discard': close every requested tab.
+      const { closeTab } = useWorkspaceStore.getState()
+      for (const tab of toClose) {
         closeTab(tab.path)
       }
-      // 'cancel' does nothing
+      // 'cancel' does nothing.
     },
-    [pendingCloseTab, closeTab]
+    [pendingCloseTabs, t]
   )
 
-  return { pendingCloseTab, requestCloseTab, resolveCloseTab }
+  return { pendingCloseTabs, requestCloseTab, requestCloseTabs, resolveCloseTabs }
 }

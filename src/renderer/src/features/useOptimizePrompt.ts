@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '../store/workspace'
 import { useConfigStore } from '../store/config'
 import { optimizePrompt } from '../services/ai'
-import { createFile, writeFile, readFileSync } from '../services/fileOps'
-import { useWorkspaceRoot } from '../hooks/useWorkspaceRoot'
+import { createSiblingFile } from '../services/fileOps'
+import { enqueueWrite } from '../services/saveQueue'
+import { baseNameAny } from '../services/pathUtils'
 
 /**
  * "Optimize prompt" workflow. Given the active tab's content, calls the AI to
@@ -18,7 +19,13 @@ export interface OptimizeState {
   busy: boolean
   error: string | null
   /** The optimized text awaiting the user's overwrite/keep decision. */
-  pending: { original: string; optimized: string; tabPath: string } | null
+  pending: {
+    original: string
+    optimized: string
+    tabPath: string
+    /** Doc revision at request time — used to refuse overwriting newer edits. */
+    revision: number
+  } | null
   /**
    * Partial optimized text as it streams in. Only non-null while streaming is
    * in progress; lets the UI show a live preview instead of an inert spinner.
@@ -32,7 +39,6 @@ export function useOptimizePrompt(): OptimizeState & {
   abort: () => void
 } {
   const { t } = useTranslation()
-  const root = useWorkspaceRoot()
   const [state, setState] = useState<OptimizeState>({
     busy: false,
     error: null,
@@ -49,7 +55,7 @@ export function useOptimizePrompt(): OptimizeState & {
     // closure (e.g. a delayed click) can't optimize the wrong tab.
     const { activePath, tabs } = useWorkspaceStore.getState()
     const tab = tabs.find((tb) => tb.path === activePath)
-    if (!tab) return
+    if (!tab || tab.readOnly) return
     const original = tab.dirtyContent ?? tab.savedContent
     if (!original.trim()) return
     setState({ busy: true, error: null, pending: null, streaming: '' })
@@ -69,7 +75,12 @@ export function useOptimizePrompt(): OptimizeState & {
         setState({ busy: false, error: null, pending: null, streaming: null })
         return
       }
-      setState({ busy: false, error: null, pending: { original, optimized, tabPath: tab.path }, streaming: null })
+      setState({
+        busy: false,
+        error: null,
+        pending: { original, optimized, tabPath: tab.path, revision: tab.revision },
+        streaming: null
+      })
     } catch (err) {
       setState({ busy: false, error: t('ai.error', { message: (err as Error).message }), pending: null, streaming: null })
     } finally {
@@ -98,26 +109,39 @@ export function useOptimizePrompt(): OptimizeState & {
       return
     }
     resolvingRef.current = true
-    const { edit, markClean, openFile } = useWorkspaceStore.getState()
+    const { edit, commitSaved, openFile } = useWorkspaceStore.getState()
     try {
       if (choice === 'overwrite') {
-        await writeFile(pending.tabPath, pending.optimized)
-        // Update the editor text first (sets dirtyContent), then mark the tab
-        // clean so savedContent absorbs the new text and dirty clears.
-        // Order matters: markClean snapshots the *current* dirtyContent, so the
-        // edit must land before it.
+        // The AI ran asynchronously: the user may have switched tabs or kept
+        // typing. Refuse to overwrite unless the target tab still holds the
+        // exact content we optimized (same revision or identical text).
+        const current = useWorkspaceStore.getState().tabs.find(
+          (tb) => tb.path === pending.tabPath
+        )
+        const stillOriginal =
+          !!current &&
+          !current.readOnly &&
+          (current.revision === pending.revision ||
+            (current.dirtyContent ?? current.savedContent) === pending.original)
+        if (!stillOriginal) {
+          resolvingRef.current = false
+          setState({ busy: false, error: t('ai.docChanged'), pending: null, streaming: null })
+          return
+        }
+        await enqueueWrite(pending.tabPath, pending.optimized)
+        // Update the editor text first (sets dirtyContent), then commit the
+        // exact written content so savedContent absorbs it and dirty clears.
+        // Order matters: commitSaved compares against the *current* dirty
+        // content, so the edit must land before it.
         edit(pending.tabPath, pending.optimized)
-        markClean(pending.tabPath)
+        commitSaved(pending.tabPath, pending.optimized)
       } else {
-        // save as new file: "<name>-optimized.md" next to the original
-        const dir = pending.tabPath.includes('/')
-          ? pending.tabPath.slice(0, pending.tabPath.lastIndexOf('/'))
-          : root
-        const baseName = pending.tabPath.split('/').pop()?.replace(/\.md$/i, '') ?? 'prompt'
-        const newPath = await createFile(dir, `${baseName}-optimized`)
-        await writeFile(newPath, pending.optimized)
-        const content = await readFileSync(newPath)
-        openFile(newPath, newPath.split('/').pop() ?? '', content)
+        // Save as new file: "<name>-optimized.md" next to the original. The
+        // sibling path is computed in the main process with node:path —
+        // renderer-side string splitting breaks on Windows separators.
+        const newPath = await createSiblingFile(pending.tabPath, '-optimized')
+        await enqueueWrite(newPath, pending.optimized)
+        openFile(newPath, baseNameAny(newPath), pending.optimized)
       }
     } catch (err) {
       resolvingRef.current = false

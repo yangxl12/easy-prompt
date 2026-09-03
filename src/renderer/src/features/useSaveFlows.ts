@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useConfigStore } from '../store/config'
 import { useWorkspaceStore, type Tab } from '../store/workspace'
-import { writeFile } from '../services/fileOps'
+import { enqueueWrite } from '../services/saveQueue'
 import { isDraftPath } from '../services/drafts'
 
 /** Auto-save writes the active tab 1.5s after the last edit. */
@@ -11,15 +11,21 @@ const AUTO_SAVE_DELAY_MS = 1500
 /**
  * Persistence flows for tab content: the debounced auto-save and the manual
  * save (Ctrl/Cmd+S per-tab editor). Owns the "write to disk first, then
- * markClean" contract — markClean may only run after a successful write.
+ * commitSaved" contract — the store may only commit the exact content that
+ * was written, so edits made while a save is in flight stay dirty instead of
+ * being silently marked saved.
  */
-export function useSaveFlows(): { saveTab: (tab: Tab) => Promise<void> } {
+export function useSaveFlows(): {
+  saveTab: (tab: Tab) => Promise<void>
+  /** Last save failure (auto or manual), rendered by the host. */
+  saveError: string | null
+} {
   const { t } = useTranslation()
   const autoSave = useConfigStore((s) => s.config.app.autoSave)
   const tabs = useWorkspaceStore((s) => s.tabs)
   const activePath = useWorkspaceStore((s) => s.activePath)
-  const markClean = useWorkspaceStore((s) => s.markClean)
   const activeTab = tabs.find((tb) => tb.path === activePath) ?? null
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Auto-save debounce: when autoSave is on, save 1.5s after the last edit.
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -30,10 +36,17 @@ export function useSaveFlows(): { saveTab: (tab: Tab) => Promise<void> } {
     const tab = activeTabRef.current
     // Auto-save only applies to real files — drafts never touch the fs.
     if (!tab || isDraftPath(tab.path)) return
-    const toWrite = tab.dirtyContent ?? tab.savedContent
-    await writeFile(tab.path, toWrite)
-    useWorkspaceStore.getState().markClean(tab.path)
-  }, [])
+    try {
+      const toWrite = tab.dirtyContent ?? tab.savedContent
+      await enqueueWrite(tab.path, toWrite)
+      useWorkspaceStore.getState().commitSaved(tab.path, toWrite)
+      setSaveError(null)
+    } catch (err) {
+      // A failed save must be visible — silent failure + a cleared dirty flag
+      // is how data gets lost.
+      setSaveError(t('editor.saveFailed', { message: (err as Error).message }))
+    }
+  }, [t])
 
   useEffect(() => {
     if (autoSaveTimerRef.current) {
@@ -61,12 +74,17 @@ export function useSaveFlows(): { saveTab: (tab: Tab) => Promise<void> } {
         window.alert(t('editor.draftSaveHint'))
         return
       }
-      const toWrite = tab.dirtyContent ?? tab.savedContent
-      await writeFile(tab.path, toWrite)
-      markClean(tab.path)
+      try {
+        const toWrite = tab.dirtyContent ?? tab.savedContent
+        await enqueueWrite(tab.path, toWrite)
+        useWorkspaceStore.getState().commitSaved(tab.path, toWrite)
+        setSaveError(null)
+      } catch (err) {
+        setSaveError(t('editor.saveFailed', { message: (err as Error).message }))
+      }
     },
-    [t, markClean]
+    [t]
   )
 
-  return { saveTab }
+  return { saveTab, saveError }
 }

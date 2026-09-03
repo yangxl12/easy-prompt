@@ -17,6 +17,15 @@ export async function createFile(dir: string, name: string): Promise<string> {
   return window.api.createFile(dir, name)
 }
 
+/**
+ * Create `"<name><suffix>.md"` next to `sourcePath`. The path is computed in
+ * the main process (workspace-validated, Windows-safe) — never parse OS
+ * paths in the renderer.
+ */
+export async function createSiblingFile(sourcePath: string, suffix: string): Promise<string> {
+  return window.api.createSiblingFile(sourcePath, suffix)
+}
+
 export async function createFolder(dir: string, name: string): Promise<string> {
   return window.api.createFolder(dir, name)
 }

@@ -9,6 +9,7 @@ import {
   readFileSync
 } from '../../services/fileOps'
 import { useFileTreeActions } from '../../features/useFileTreeActions'
+import { isPathWithin } from '../../services/pathUtils'
 
 interface Props {
   node: FileNode
@@ -88,16 +89,24 @@ export default function FileTreeNodeMenu({ node, children, isSelected, onCreated
   }, [node, renameNode])
 
   const handleDelete = async (): Promise<void> => {
+    // Deleting closes every open tab under the deleted paths — disclose how
+    // many of them carry unsaved edits so the loss is never silent.
+    const tabs = useWorkspaceStore.getState().tabs
+    const dirtyCount = tabs.filter(
+      (tb) => tb.dirtyContent !== null && multiPaths.some((p) => isPathWithin(p, tb.path))
+    ).length
+    const baseMessage = inMultiSelect
+      ? t('tree.deleteSelectedConfirm', { count: multiPaths.length })
+      : t('tree.deleteConfirm', { name: node.name })
+    const message =
+      dirtyCount > 0
+        ? `${baseMessage}\n${t('tree.dirtyTabsWarning', { count: dirtyCount })}`
+        : baseMessage
+    if (!window.confirm(message)) return
+    await deleteNodes(multiPaths)
     if (inMultiSelect) {
-      const ok = window.confirm(t('tree.deleteSelectedConfirm', { count: multiPaths.length }))
-      if (!ok) return
-      await deleteNodes(multiPaths)
       setSelectedPaths([])
       setLastClickedPath(null)
-    } else {
-      const ok = window.confirm(t('tree.deleteConfirm', { name: node.name }))
-      if (!ok) return
-      await deleteNodes([node.path])
     }
   }
 

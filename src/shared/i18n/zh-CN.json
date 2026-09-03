@@ -36,6 +36,7 @@
     "openFolder": "打开本地文件夹",
     "preview": "预览",
     "deleteConfirm": "确定删除「{{name}}」吗？",
+    "dirtyTabsWarning": "其中 {{count}} 个打开的文档有未保存的更改，删除后这些更改将丢失。",
     "renamePrompt": "输入新名称"
   },
   "editor": {
@@ -56,8 +57,14 @@
     "draftSaveHint": "这是草稿文档，请先在文件树新建或打开一个文件后再保存。",
     "unsavedChanges": "未保存的更改",
     "unsavedChangesMessage": "「{{name}}」有未保存的更改。是否保存后再关闭？",
+    "unsavedTabsMessage": "{{count}} 个标签页有未保存的更改：{{names}}",
+    "draftCloseMessage": "「{{name}}」是未保存的草稿，关闭后内容将丢失。",
+    "draftNotSavedHint": "草稿标签没有对应文件，其未保存内容将被丢弃。",
     "saveAndClose": "保存并关闭",
+    "saveAllAndClose": "全部保存并关闭",
     "discardChanges": "不保存",
+    "discardAll": "全部不保存",
+    "saveFailed": "保存失败：{{message}}",
     "lines": "{{count}} 行",
     "chars": "{{count}} 字",
     "selected": "选中 {{count}}"
@@ -76,6 +83,7 @@
     "streaming": "AI 正在润色…",
     "notConfigured": "请前往设置中配置 AI 模型",
     "error": "AI 调用失败：{{message}}",
+    "docChanged": "文档在 AI 处理期间已被修改，已取消写入结果",
     "optimizeHelp": "润色使其更通顺、有条理，不改变核心意图",
     "convert": "转换为提示词",
     "convertHelp": "把截图/图片喂给视觉模型，生成一段可复现该 UI 的提示词",

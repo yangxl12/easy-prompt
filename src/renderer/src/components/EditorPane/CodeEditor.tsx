@@ -100,8 +100,17 @@ export interface EditorCommands {
   hasSelection: () => boolean
   /** Returns the currently-selected text (empty string if no selection). */
   getSelectionText: () => string
+  /** Returns the current selection range, or null when nothing is selected. */
+  getSelectionRange: () => { from: number; to: number } | null
   /** Replaces the current selection with `text` (inserts at caret if none). */
   replaceSelection: (text: string) => void
+  /**
+   * Replace [from, to) with `text` only when the doc there still contains
+   * `expected`. Used to splice async AI results back into their original
+   * selection without clobbering edits the user made in the meantime.
+   * Returns false when the range no longer matches (caller must not write).
+   */
+  replaceRange: (from: number, to: number, text: string, expected: string) => boolean
   /** Focus the editor (called when its tab becomes active). */
   focus: () => void
 }
@@ -436,6 +445,12 @@ export default function CodeEditor({
         if (from === to) return ''
         return v.state.sliceDoc(from, to)
       },
+      getSelectionRange: () => {
+        const v = viewRef.current
+        if (!v) return null
+        const { from, to } = v.state.selection.main
+        return from === to ? null : { from, to }
+      },
       replaceSelection: (text: string) => {
         const v = viewRef.current
         if (!v) return
@@ -444,6 +459,18 @@ export default function CodeEditor({
           changes: { from: sel.from, to: sel.to, insert: text },
           selection: { anchor: sel.from + text.length }
         })
+      },
+      replaceRange: (from: number, to: number, text: string, expected: string) => {
+        const v = viewRef.current
+        if (!v) return false
+        // Guard: only replace when the captured selection is still intact.
+        if (from < 0 || to < from || to > v.state.doc.length) return false
+        if (v.state.sliceDoc(from, to) !== expected) return false
+        v.dispatch({
+          changes: { from, to, insert: text },
+          selection: { anchor: from + text.length }
+        })
+        return true
       },
       focus: () => {
         viewRef.current?.focus()
